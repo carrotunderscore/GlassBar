@@ -60,6 +60,39 @@ namespace GlassBar
             SHAppBarMessage(ABM_NEW, ref d);
         }
 
+        /// The strip of px along an edge of the monitor (no reservation).
+        public static RECT FitEdge(RECT m, uint edge, int px)
+        {
+            switch (edge)
+            {
+                case 0: m.Right = m.Left + px; break;
+                case 1: m.Bottom = m.Top + px; break;
+                case 2: m.Left = m.Right - px; break;
+                default: m.Top = m.Bottom - px; break;
+            }
+            return m;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+
+        /// The Windows taskbar windows (main and other monitors).
+        public static System.Collections.Generic.List<IntPtr> TaskbarWindows()
+        {
+            var list = new System.Collections.Generic.List<IntPtr>();
+            var main = FindWindow("Shell_TrayWnd", null);
+            if (main != IntPtr.Zero) list.Add(main);
+            for (var h = FindWindowEx(IntPtr.Zero, IntPtr.Zero, "Shell_SecondaryTrayWnd", null); h != IntPtr.Zero; h = FindWindowEx(IntPtr.Zero, h, "Shell_SecondaryTrayWnd", null))
+                list.Add(h);
+            return list;
+        }
+
+        /// Hide the Windows taskbar completely (it won't pop up at the edge), or show it again.
+        public static void SetWindowsTaskbarHidden(bool hide)
+        {
+            foreach (var h in TaskbarWindows())
+                if (IsWindowVisible(h) == hide) ShowWindow(h, hide ? 0 : 5);
+        }
+
         public static void AppBarRemove(IntPtr h)
         {
             var d = new APPBARDATA { cbSize = Marshal.SizeOf<APPBARDATA>(), hWnd = h };

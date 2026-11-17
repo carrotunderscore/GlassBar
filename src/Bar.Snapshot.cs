@@ -13,7 +13,17 @@ namespace GlassBar
             if (Environment.GetEnvironmentVariable("GB_MINI") is string mini)
             {
                 var parts = mini.Split('|');
-                bool ok = await MiniPlayer.Open(parts[0], parts.Length > 1 ? parts[1] : "", 30);
+                bool ok = parts[0].StartsWith("http")
+                    ? await MiniPlayer.OpenPage(parts[0], "test", 600)
+                    : await MiniPlayer.Open(parts[0], parts.Length > 1 ? parts[1] : "", 30);
+                if (ok && parts[0].StartsWith("http"))
+                {
+                    await Task.Delay(6000);
+                    if (Environment.GetEnvironmentVariable("GB_MINI_CLICK") is string label) await MiniPlayer.TestClick(label);
+                    await Task.Delay(12000);
+                    if (Environment.GetEnvironmentVariable("GB_MINI_EVAL") is string js)
+                        File.WriteAllText(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(snapshotPath)), "mini_eval.txt"), await MiniPlayer.TestEval(js) ?? "null");
+                }
                 File.WriteAllText(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(snapshotPath)), "mini_result.txt"), ok ? "found" : "not found");
                 if (ok) await MiniPlayer.TestCapture(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(snapshotPath)), "mini.png"));
             }

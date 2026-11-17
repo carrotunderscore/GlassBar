@@ -33,6 +33,9 @@ namespace GlassBar
         public List<string> CardOrder { get; set; }  // order of the cards on the strip (drag to change)
         public List<string> PinOrder { get; set; }   // order of the pinned apps (drag to change)
         public bool AiUsage { get; set; } = true;
+        public double DockLength { get; set; }
+        public bool AutoHide { get; set; } = true;
+        public bool ChatsInBackground { get; set; } = true;   // keep Messenger/Messages/Gmail loaded for unread badges  // dock hides and slides in when the mouse touches the edge       // floating dock length in DIPs; 0 = fit the content
 
         static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassBar");
         static string FilePath => Path.Combine(Dir, "settings.json");
@@ -140,10 +143,10 @@ namespace GlassBar
             }
 
             appBarMsg = Native.RegisterWindowMessage("GlassBarAppBarMessage");
-            Native.AppBarRegister(Hwnd, appBarMsg);
             appBarOn = true;
             if (Settings.ReplaceTaskbar) ApplyTaskbarReplace(true, save: false);
             Dock();
+            InitAutoHide();
             RegisterHotkeys();
             InstallWheelHook();
             if (!Settings.ReplaceTaskbar && !Settings.AskedTaskbar) TaskbarAsk.Visibility = Visibility.Visible;
@@ -156,13 +159,24 @@ namespace GlassBar
             var mon = Native.PrimaryMonitor();
             double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
             int px = (int)Math.Round(BarThickness * scale) + FloatGapPx;
-            dockRect = Native.AppBarSet(Hwnd, mon, (uint)Edge, px);
+            edgeMon = mon;
+            if (AutoHide)
+            {
+                // don't reserve space: programs use the whole screen, the dock slides in on demand
+                if (reserved) { Native.AppBarRemove(Hwnd); reserved = false; }
+                dockRect = Native.FitEdge(mon, (uint)Edge, px);
+            }
+            else
+            {
+                if (!reserved) { Native.AppBarRegister(Hwnd, appBarMsg); reserved = true; }
+                dockRect = Native.AppBarSet(Hwnd, mon, (uint)Edge, px);
+            }
             PlaceWindow();
         }
 
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
         {
-            if (appBarOn && msg == appBarMsg)
+            if (reserved && msg == appBarMsg)
             {
                 switch ((int)w)
                 {
@@ -192,9 +206,11 @@ namespace GlassBar
 
         public void Shutdown()
         {
-            if (appBarOn) { Native.AppBarRemove(Hwnd); appBarOn = false; }
+            if (reserved) { Native.AppBarRemove(Hwnd); reserved = false; }
+            appBarOn = false;
+            if (Settings.ReplaceTaskbar) Native.SetWindowsTaskbarHidden(false);
             Native.UnregisterHotKey(Hwnd, 1);
-            if (wheelHook != IntPtr.Zero) { Native.UnhookWindowsHookEx(wheelHook); wheelHook = IntPtr.Zero; }
+            StopHookThread(wheelThread); wheelThread = 0; wheelHook = IntPtr.Zero;
             RemoveKeyHook();
             if (Settings.ReplaceTaskbar && Settings.OriginalAutoHide is bool orig) Native.TaskbarAutoHide = orig;
             StopRecordingForExit();
@@ -224,20 +240,27 @@ namespace GlassBar
         // and also the sideways swipe of a touchpad (WM_MOUSEHWHEEL), which WPF ignores.
         IntPtr wheelHook;
         Native.LowLevelMouseProc wheelProc;
+        uint wheelThread;
+        volatile bool barVisible = true;
 
         void InstallWheelHook()
         {
             wheelProc = WheelHook;
-            wheelHook = Native.SetWindowsHookEx(14 /* WH_MOUSE_LL */, wheelProc, Native.GetModuleHandle(null), 0);
+            IsVisibleChanged += (s, e) => barVisible = IsVisible;
+            barVisible = IsVisible;
+            wheelThread = StartHookThread("GlassBar mouse hook",
+                () => wheelHook = Native.SetWindowsHookEx(14 /* WH_MOUSE_LL */, wheelProc, Native.GetModuleHandle(null), 0),
+                h => Native.UnhookWindowsHookEx(h));
         }
 
         IntPtr WheelHook(int code, IntPtr msg, ref Native.MSLLHOOKSTRUCT info)
         {
-            if (code >= 0 && ((int)msg == 0x020A || (int)msg == 0x020E))
+            if (code >= 0 && (int)msg == 0x0200) OnMouseMoveHook(info.pt.X, info.pt.Y);   // WM_MOUSEMOVE: auto-hide reveal
+            else if (code >= 0 && ((int)msg == 0x020A || (int)msg == 0x020E))
             {
                 Native.GetWindowRect(Hwnd, out var r);
                 int x = info.pt.X, y = info.pt.Y;
-                if (x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom && IsVisible)
+                if (x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom && barVisible)
                 {
                     int delta = (short)(info.mouseData >> 16);
                     bool horizontal = (int)msg == 0x020E;
@@ -375,12 +398,15 @@ namespace GlassBar
             m.Items.Add(MI("Replace Windows taskbar (auto-hide it)", () => ApplyTaskbarReplace(!Settings.ReplaceTaskbar), Settings.ReplaceTaskbar));
             m.Items.Add(MI("Start with Windows", ToggleAutostart, AutostartOn));
             m.Items.Add(MI("Windows key opens the glass Start menu", ToggleGlassStart, Settings.GlassStart));
+            m.Items.Add(MI("Auto-hide (show when the mouse touches the edge)", () => SetAutoHide(!Settings.AutoHide), Settings.AutoHide));
             m.Items.Add(MI("Floating dock (centered, rounded)", () => SetFloating(!Settings.Floating), Settings.Floating));
             m.Items.Add(MI("Show AI usage", ToggleAi, Settings.AiUsage));
             m.Items.Add(MI("Reset card order", ResetOrder, enabled: Settings.CardOrder != null || Settings.PinOrder != null));
+            m.Items.Add(LengthMenu());
             m.Items.Add(PositionMenu());
             m.Items.Add(SizeMenu());
             m.Items.Add(new Separator());
+            m.Items.Add(MI("Keep chats running for unread badges (uses more memory)", ToggleChatsInBackground, Settings.ChatsInBackground));
             m.Items.Add(MI("Sign out of chats and mail", ClearWebData));
             m.Items.Add(MI("Open recordings folder", () => Launch(RecordingsDir)));
             m.Items.Add(new Separator());
@@ -400,17 +426,19 @@ namespace GlassBar
                 {
                     if (save || Settings.OriginalAutoHide == null) Settings.OriginalAutoHide ??= Native.TaskbarAutoHide;
                     Native.TaskbarAutoHide = true;
+                    Native.SetWindowsTaskbarHidden(true);
                 }
-                else if (Settings.OriginalAutoHide is bool orig)
+                else
                 {
-                    Native.TaskbarAutoHide = orig;
+                    Native.SetWindowsTaskbarHidden(false);
+                    if (Settings.OriginalAutoHide is bool orig) Native.TaskbarAutoHide = orig;
                 }
                 if (save)
                 {
                     Settings.ReplaceTaskbar = on;
                     if (!on) Settings.OriginalAutoHide = null;
                     Settings.Save();
-                    ShowToast(on ? "Windows taskbar hidden – touch the very bottom edge to bring it back (tray icons)." : "Windows taskbar restored");
+                    ShowToast(on ? "Windows taskbar hidden. Its tray icons are on the bar." : "Windows taskbar restored");
                 }
                 Dispatcher.BeginInvoke(Dock, DispatcherPriority.Background);
             }

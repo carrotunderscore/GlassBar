@@ -167,11 +167,26 @@ namespace GlassBar
             catch { }
             ShowToast("Opening mini player…", 2);
             var source = media;
-            if (await MiniPlayer.Open(title, channel, seconds))
+
+            // which page is playing? read the address of the browser tab that shows this video
+            var (url, tabTitle) = await Task.Run(() => MiniPlayer.FindBrowserPage(title));
+            bool ok;
+            if (url != null && MiniPlayer.YouTubeId(url) is string id)
+                ok = await MiniPlayer.OpenYouTube(id, title, seconds);
+            else if (url != null)
+                ok = await MiniPlayer.OpenPage(url, title, seconds);
+            else if (tabTitle != null && tabTitle.Contains("YouTube"))
+                ok = await MiniPlayer.Open(title, channel, seconds);   // YouTube, but no address: search it
+            else
+            {
+                ShowToast("Couldn't tell which page is playing. Switch to the video's tab and try again.", 5);
+                return;
+            }
+            if (ok)
             {
                 try { await source.TryPauseAsync(); } catch { }   // so the sound doesn't play twice
             }
-            else ShowToast("Couldn't find this video on YouTube for the mini player", 5);
+            else ShowToast("Couldn't open this video in the mini player", 5);
         }
 
         void OpenSpotify()

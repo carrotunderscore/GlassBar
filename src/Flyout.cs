@@ -119,6 +119,7 @@ namespace GlassBar
         public void ShowAbove(FrameworkElement anchor)
         {
             Anchor = anchor;
+            BarWindow.Instance?.RevealNow();
             BarWindow.Instance?.CloseFlyoutsExcept(this);
             if (hwnd == IntPtr.Zero) { Show(); }
             var dpi = VisualTreeHelper.GetDpi(anchor);

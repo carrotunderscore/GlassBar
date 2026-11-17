@@ -1,7 +1,7 @@
 # GlassBar
 
 A dark, glassy taskbar replacement for Windows 10, built with WPF (.NET 8).
-It sits on any screen edge, reserves its space like the real taskbar and puts your
+It sits on any screen edge, hides until you need it and puts your
 everyday tools on scrollable glass cards: open windows, chats, mail, music, files,
 system stats, screen recording, a terminal, phone transfers and a glass Start menu.
 
@@ -10,7 +10,13 @@ and the ModernGlass Windows theme.
 
 ## Install
 
-1. Download `GlassBar-v1.1.0-win-x64.zip` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and unzip it.
+**Quickest:** download `GlassBar.exe` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and run it.
+It's a single self-contained file, so nothing else needs to be installed (WebView2 ships with Windows 10/11).
+It doesn't add a Start menu shortcut or start with Windows; use the installer below for that.
+
+**Installer:**
+
+1. Download `GlassBar-v1.2.0-win-x64.zip` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and unzip it.
 2. Right-click **`Install.ps1`** and choose **Run with PowerShell**.
    - Copies the app to `%LOCALAPPDATA%\Programs\GlassBar` (no admin needed)
    - Installs what's missing with `winget`: .NET 8 Desktop Runtime, ASP.NET Core Runtime 8, WebView2
@@ -35,10 +41,10 @@ and removes the app. It also asks whether to delete settings and chat logins.
 | **Start** | Opens the glass Start menu (also on the Windows key, see below). |
 | **Explorer** | Opens GlassExplorer if it's installed, otherwise File Explorer. |
 | **Search** | Type a path, URL or file and press Enter to open it. Anything else goes to Windows search. |
-| **Apps & windows** | Your pinned taskbar apps, then open windows. Click to switch or minimize, middle-click to close, hover for a live preview. |
-| **Media** | Spotify, or whatever is playing, with album art, progress and play/next/previous. For a video playing in the browser, click the picture to pop it out into a floating **mini player**. |
+| **Apps & windows** | Your pinned taskbar apps, then other open windows. A pinned app that is running gets a line under its icon instead of a second icon. Click to switch, minimize or cycle its windows, middle-click a pin for a new window, hover for a live preview. |
+| **Media** | Spotify, or whatever is playing, with album art, progress and play/next/previous. For a video playing in the browser, click the picture to pop it out into a floating **mini player**: it opens the same page (YouTube, SVT Play and other sites) and continues where you were. |
 | **AI usage** | Session (5-hour) and weekly limits for ChatGPT/Codex and Claude, if the apps are installed. See below. |
-| **Messenger · Messages · Gmail** | The web apps in glass pop-ups, with unread badges. Sign in once; they stay signed in and load in the background. |
+| **Messenger · Messages · Gmail** | The web apps in glass pop-ups, with unread badges. Sign in once; they stay signed in. |
 | **LocalSend** | Send files to your phone and receive from it. See below. |
 | **Recent** | Your latest files. The pop-up lets you drag files straight into a chat or browser. |
 | **Task manager** | CPU and RAM graphs. Click for a process list with *End task*. |
@@ -52,6 +58,14 @@ and removes the app. It also asks whether to delete settings and chat logins.
 Scroll the bar sideways with the mouse wheel, touchpad or the edge arrows.
 Hover any icon and its name shows up right away.
 
+### Auto-hide
+
+- The dock **hides** when you're not using it, so programs get the whole screen. Move the mouse to the screen edge and it slides in.
+- It doesn't pop up over real fullscreen apps (games, fullscreen video).
+- The old Windows taskbar stays hidden too, also when the mouse reaches the bottom edge.
+- **Windows key:** the 1st press shows the dock, the 2nd opens the Start menu, the 3rd hides it all again.
+- Turn it off in **⋯ → Auto-hide**. The dock then stays put and reserves its space like the real taskbar.
+
 ### Floating dock and drag and drop
 
 - By default the bar is a **floating dock**: rounded, with a gap to the screen edge, and only as long as its content.
@@ -59,6 +73,7 @@ Hover any icon and its name shows up right away.
 - **Drag to rearrange:** press on a card, a pinned app or an open window and drag it to a new place. The others slide
   out of the way, and the order is remembered. **⋯ → Reset card order** undoes it.
 - **Drop files on a pinned app** to open them in that app.
+- **Length:** drag either end of the dock to make it longer or shorter, or pick one in **⋯ → Dock length**.
 
 ### Size and position
 
@@ -101,6 +116,13 @@ LocalSend app on your phone. You don't need the LocalSend desktop app.
 - If the phone requires a PIN in LocalSend, turn that off.
 - Troubleshooting log: `%LOCALAPPDATA%\GlassBar\localsend.log`.
 
+## Memory use
+
+The chats, mail and AI usage use Microsoft Edge **WebView2**, so Task Manager lists several *Microsoft Edge WebView2*
+processes under GlassBar. Hidden pages are set to low memory, and the AI pages close right after each check.
+To save more, turn off **⋯ → Keep chats running for unread badges**: the chats then load only when you open them
+and close a few minutes after, but you don't get unread badges.
+
 ## Where things are stored
 
 - App: `%LOCALAPPDATA%\Programs\GlassBar`
@@ -114,11 +136,14 @@ Requires the .NET 8 SDK on Windows.
 cd src
 dotnet build -c Release
 dotnet publish -c Release -r win-x64 --self-contained false -o ..\publish
+
+# single self-contained GlassBar.exe
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ..\single
 ```
 
 ## Requirements
 
 - Windows 10 (19041 or later) or Windows 11, 64-bit
-- .NET 8 Desktop Runtime and ASP.NET Core Runtime 8 (the installer adds them)
+- .NET 8 Desktop Runtime and ASP.NET Core Runtime 8 (the installer adds them; `GlassBar.exe` from Releases includes them)
 - Microsoft Edge WebView2 Runtime (usually already installed)
 - Optional: ffmpeg for screen recording

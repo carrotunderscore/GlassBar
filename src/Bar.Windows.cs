@@ -16,6 +16,7 @@ namespace GlassBar
     public class WinItem : INotifyPropertyChanged
     {
         public IntPtr Hwnd;
+        public string Exe;   // lower case
         public string Title { get; set; }
         public ImageSource Icon { get; set; }
         public string Letter => Icon == null && Title?.Length > 0 ? Title.Substring(0, 1).ToUpperInvariant() : "";
@@ -63,29 +64,74 @@ namespace GlassBar
             var h = Native.GetForegroundWindow();
             if (h != IntPtr.Zero && !IsOwnWindow(h)) lastForeground = h;
             foreach (var w in windows) w.IsActive = w.Hwnd == lastForeground && !Native.IsIconic(w.Hwnd);
+            foreach (var p in pins) p.IsActive = p.Windows.Any(w => w.Hwnd == lastForeground && !Native.IsIconic(w.Hwnd));
         }
+
+        /// The folder of an app's .exe, when it's specific enough to belong to that app only.
+        static string AppDir(string exe)
+        {
+            var dir = Path.GetDirectoryName(exe);
+            if (dir == null) return null;
+            var win = Environment.GetFolderPath(Environment.SpecialFolder.Windows).ToLowerInvariant();
+            if (dir.StartsWith(win)) return null;
+            // shared roots like Program Files or AppData\Local hold many apps
+            var roots = new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.LocalApplicationData,
+                                Environment.SpecialFolder.ApplicationData, Environment.SpecialFolder.UserProfile, Environment.SpecialFolder.MyDocuments }
+                .Select(f => Environment.GetFolderPath(f).ToLowerInvariant()).ToList();
+            roots.Add(Path.Combine(roots[2], "programs"));
+            if (dir.Length <= 3 || roots.Contains(dir.TrimEnd('\\'))) return null;
+            return dir + "\\";
+        }
+
+        // every open window we know, pinned or not
+        readonly Dictionary<IntPtr, WinItem> allWindows = new();
 
         void RefreshWindows()
         {
             var current = Native.TaskbarWindows(Hwnd).Where(h => !IsOwnWindow(h)).ToList();
             var set = new HashSet<IntPtr>(current);
-            for (int i = windows.Count - 1; i >= 0; i--)
-                if (!set.Contains(windows[i].Hwnd)) windows.RemoveAt(i);
-            var known = new HashSet<IntPtr>(windows.Select(w => w.Hwnd));
+            foreach (var gone in allWindows.Keys.Where(h => !set.Contains(h)).ToList()) allWindows.Remove(gone);
             foreach (var h in current)
             {
-                if (known.Contains(h))
+                if (allWindows.TryGetValue(h, out var w))
                 {
-                    var w = windows.First(x => x.Hwnd == h);
                     var title = Native.WindowTitle(h);
                     if (title != w.Title) { w.Title = title; w.On(nameof(WinItem.Title)); }
                     continue;
                 }
-                var item = new WinItem { Hwnd = h, Title = Native.WindowTitle(h) };
+                Native.GetWindowThreadProcessId(h, out uint pid);
+                var item = new WinItem { Hwnd = h, Title = Native.WindowTitle(h), Exe = Native.ProcessPath(pid)?.ToLowerInvariant() };
                 item.Icon = IconFor(h);
-                windows.Add(item);
+                allWindows[h] = item;
             }
+
+            // windows of a pinned app show as a line under its pinned icon, not as a second icon
+            var byExe = pins.Where(p => p.Target != null).GroupBy(p => p.Target).ToDictionary(g => g.Key, g => g.First());
+            var perPin = pins.ToDictionary(p => p, p => new List<WinItem>());
+            var loose = new List<WinItem>();
+            foreach (var h in current)
+            {
+                var w = allWindows[h];
+                PinItem pin = null;
+                if (w.Exe != null && !byExe.TryGetValue(w.Exe, out pin))
+                {
+                    // launcher shortcuts / versioned folders: the window's program lives in the shortcut's app folder
+                    pin = pins.FirstOrDefault(p => p.Target != null && AppDir(p.Target) is string d && w.Exe.StartsWith(d));
+                }
+                if (pin != null) perPin[pin].Add(w);
+                else loose.Add(w);
+            }
+            foreach (var kv in perPin) kv.Key.SetWindows(kv.Value);
+
+            // the other windows: update the list in place (keeps the order the user dragged them into)
+            var looseSet = new HashSet<WinItem>(loose);
+            for (int i = windows.Count - 1; i >= 0; i--)
+                if (!looseSet.Contains(windows[i])) windows.RemoveAt(i);
+            foreach (var w in loose)
+                if (!windows.Contains(w)) windows.Add(w);
+
             TrackForeground();
+            PinSep.Visibility = pins.Count > 0 && windows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             WindowsCard.Visibility = windows.Count > 0 || pins.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 

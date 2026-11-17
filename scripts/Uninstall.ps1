@@ -13,6 +13,21 @@ try {
 
 Get-Process GlassBar -ErrorAction SilentlyContinue | Stop-Process -Force
 
+# GlassBar hides the Windows taskbar windows completely: show them again
+Add-Type @'
+using System; using System.Runtime.InteropServices;
+public static class TBShow {
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+  public static void All() {
+    foreach (var cls in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
+      for (var h = FindWindowEx(IntPtr.Zero, IntPtr.Zero, cls, null); h != IntPtr.Zero; h = FindWindowEx(IntPtr.Zero, h, cls, null))
+        ShowWindow(h, 5);
+  }
+}
+'@
+[TBShow]::All()
+
 if ($null -ne $restoreAutoHide) {
     Add-Type @'
 using System; using System.Runtime.InteropServices;

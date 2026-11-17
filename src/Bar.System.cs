@@ -21,11 +21,30 @@ namespace GlassBar
         public string Tip { get; set; }
     }
 
-    public class PinItem
+    public class PinItem : System.ComponentModel.INotifyPropertyChanged
     {
         public string Path;
+        public string Target;                     // the program the shortcut starts (lower case), if it's a normal .exe
         public ImageSource Icon { get; set; }
         public string Name { get; set; }
+        public List<WinItem> Windows = new();     // its open windows (shown as a line under the pinned icon)
+
+        public bool HasWindow => Windows.Count > 0;
+        bool active;
+        public bool IsActive { get => active; set { if (active == value) return; active = value; On(nameof(IsActive)); } }
+        public string Tip => Windows.Count switch { 0 => Name, 1 => Windows[0].Title, _ => $"{Name} · {Windows.Count} windows" };
+
+        public void SetWindows(List<WinItem> list)
+        {
+            bool changed = list.Count != Windows.Count || list.Where((w, i) => w != Windows[i] || w.Title != tips[i]).Any();
+            Windows = list;
+            tips = list.Select(w => w.Title).ToList();
+            if (changed) { On(nameof(HasWindow)); On(nameof(Tip)); }
+        }
+        List<string> tips = new();
+
+        public void On(string p) => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(p));
+        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
     }
 
     /// Battery, tray icons (notification area of the hidden Windows taskbar) and pinned taskbar apps.
@@ -172,16 +191,62 @@ namespace GlassBar
                 var order = Settings.PinOrder ?? new List<string>();
                 int Rank(FileInfo f) { int i = order.IndexOf(f.Name); return i < 0 ? int.MaxValue : i; }
                 foreach (var f in new DirectoryInfo(PinDir).GetFiles("*.lnk").OrderBy(Rank).ThenBy(f => f.CreationTime))
-                    pins.Add(new PinItem { Path = f.FullName, Name = Path.GetFileNameWithoutExtension(f.Name), Icon = Native.ShellImage(f.FullName, 48) });
+                    pins.Add(new PinItem { Path = f.FullName, Name = Path.GetFileNameWithoutExtension(f.Name), Icon = Native.ShellImage(f.FullName, 48), Target = ShortcutTarget(f.FullName) });
             }
             catch { }
             PinList.Visibility = pins.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             PinSep.Visibility = pins.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        /// The .exe a shortcut points to (null for Store apps and other non-exe targets).
+        static string ShortcutTarget(string lnk)
+        {
+            try
+            {
+                var t = Type.GetTypeFromProgID("WScript.Shell");
+                dynamic sh = Activator.CreateInstance(t);
+                try
+                {
+                    dynamic sc = sh.CreateShortcut(lnk);
+                    string target = sc.TargetPath;
+                    return !string.IsNullOrEmpty(target) && target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? target.ToLowerInvariant() : null;
+                }
+                finally { Marshal.FinalReleaseComObject(sh); }
+            }
+            catch { return null; }
+        }
+
         void Pin_Click(object s, RoutedEventArgs e)
         {
-            if ((s as FrameworkElement)?.DataContext is PinItem p) Launch(p.Path);
+            if ((s as FrameworkElement)?.DataContext is not PinItem p) return;
+            HideThumb();
+            if (p.Windows.Count == 0) { Launch(p.Path); return; }
+            // like the Windows taskbar: bring it to front, minimize it if it's already in front, cycle through several
+            int cur = p.Windows.FindIndex(w => w.Hwnd == lastForeground && !Native.IsIconic(w.Hwnd));
+            if (cur >= 0 && p.Windows.Count == 1)
+            {
+                Native.ShowWindow(p.Windows[0].Hwnd, Native.SW_MINIMIZE);
+                lastForeground = IntPtr.Zero;
+                return;
+            }
+            Native.Activate(p.Windows[(cur + 1) % p.Windows.Count].Hwnd);
+        }
+
+        void Pin_MiddleClick(object s, MouseButtonEventArgs e)
+        {
+            // middle-click: open another window of the app
+            if (e.ChangedButton != MouseButton.Middle || (s as FrameworkElement)?.DataContext is not PinItem p) return;
+            e.Handled = true;
+            Launch(p.Path);
+        }
+
+        void Pin_Enter(object s, MouseEventArgs e)
+        {
+            if ((s as FrameworkElement)?.DataContext is not PinItem p || p.Windows.Count == 0) { hoverItem = null; return; }
+            hoverItem = p.Windows.FirstOrDefault(w => w.Hwnd == lastForeground) ?? p.Windows[0];
+            hoverAnchor = s as FrameworkElement;
+            if (thumb != null && thumb.IsVisible) ShowThumb();
+            else { hoverTimer.Stop(); hoverTimer.Start(); }
         }
 
         void Pin_RightClick(object s, MouseButtonEventArgs e)
@@ -189,7 +254,9 @@ namespace GlassBar
             if ((s as FrameworkElement)?.DataContext is not PinItem p) return;
             e.Handled = true;
             var m = new ContextMenu();
-            m.Items.Add(MI("Open", () => Launch(p.Path)));
+            m.Items.Add(MI(p.Windows.Count > 0 ? "New window" : "Open", () => Launch(p.Path)));
+            foreach (var w in p.Windows.ToList())
+                m.Items.Add(MI("Close: " + (w.Title.Length > 40 ? w.Title.Substring(0, 40) + "…" : w.Title), () => Native.PostMessage(w.Hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero)));
             m.Items.Add(MI("Run as administrator", () =>
             {
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(p.Path) { UseShellExecute = true, Verb = "runas" }); } catch { }

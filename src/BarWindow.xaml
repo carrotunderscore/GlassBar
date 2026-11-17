@@ -212,9 +212,23 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Button Style="{StaticResource Tile}" Click="Pin_Click" MouseRightButtonUp="Pin_RightClick" ToolTip="{Binding Name}">
-                                            <Image Source="{Binding Icon}" Width="30" Height="30" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                        <Button Style="{StaticResource Tile}" Click="Pin_Click" MouseRightButtonUp="Pin_RightClick" ToolTip="{Binding Tip}"
+                                                PreviewMouseUp="Pin_MiddleClick" MouseEnter="Pin_Enter" MouseLeave="Window_Leave">
+                                            <Grid>
+                                                <Image Source="{Binding Icon}" Width="30" Height="30" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                <Border x:Name="Ind" Height="3" Width="10" CornerRadius="1.5" Background="{StaticResource TextTertiary}"
+                                                        VerticalAlignment="Bottom" Margin="0,0,0,3" Visibility="Collapsed"/>
+                                            </Grid>
                                         </Button>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding HasWindow}" Value="True">
+                                                <Setter TargetName="Ind" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                <Setter TargetName="Ind" Property="Width" Value="22"/>
+                                                <Setter TargetName="Ind" Property="Background" Value="{StaticResource Accent}"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -540,7 +554,7 @@
                     <TextBlock Text="&#xE90E;" FontFamily="{StaticResource Icons}" FontSize="18" Foreground="#8FB8FF" VerticalAlignment="Center" Margin="0,0,12,0"/>
                     <StackPanel VerticalAlignment="Center" Margin="0,0,18,0">
                         <TextBlock Text="Hide the old Windows taskbar?" FontSize="14" FontWeight="SemiBold"/>
-                        <TextBlock Text="It auto-hides and comes back when you touch the very bottom edge (for tray icons). Undo any time in the ⋯ menu."
+                        <TextBlock Text="GlassBar replaces it completely; its tray icons move to the bar. Undo any time in the ⋯ menu."
                                    FontSize="11.5" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
                     </StackPanel>
                     <Button Style="{StaticResource PillButton}" Content="Hide it" Padding="16,6" Click="AskHide_Click" Margin="0,0,8,0"/>

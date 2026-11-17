@@ -43,6 +43,9 @@ namespace GlassBar
             StartCard.SizeChanged += (s, e) => QueuePlace();
             ClockCard.SizeChanged += (s, e) => QueuePlace();
 
+            InitEndGrips();
+            LayoutEndGrips();
+
             Root.MouseLeftButtonDown += Move_Down;
             Root.MouseMove += Move_Move;
             Root.MouseLeftButtonUp += Move_Up;
@@ -97,7 +100,9 @@ namespace GlassBar
             TaskbarAsk.MaxWidth = v ? 300 : double.PositiveInfinity;
 
             Strip.Orientation = v ? Orientation.Vertical : Orientation.Horizontal;
-            Strip.VerticalAlignment = v ? VerticalAlignment.Top : VerticalAlignment.Center;
+            Strip.VerticalAlignment = v ? (Floating ? VerticalAlignment.Center : VerticalAlignment.Top) : VerticalAlignment.Center;
+            Strip.HorizontalAlignment = !v && Floating ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+            LayoutEndGrips();
             StripScroll.HorizontalScrollBarVisibility = v ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Hidden;
             StripScroll.VerticalScrollBarVisibility = v ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Disabled;
 
@@ -230,17 +235,17 @@ namespace GlassBar
         {
             if (!appBarOn) return;
             var r = dockRect;
-            const uint flags = Native.SWP_NOACTIVATE | Native.SWP_SHOWWINDOW;
             if (!Floating)
             {
-                Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, flags);
+                shownRect = r;
+                ApplySlide(sized: true);
                 Native.ClearRegion(Hwnd);
                 return;
             }
             double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
             int gap = FloatGapPx, thick = (int)Math.Round(BarThickness * dpi);
             int along = Vertical ? r.Bottom - r.Top : r.Right - r.Left;
-            int want = (int)Math.Ceiling(ContentLength() * dpi);
+            int want = (int)Math.Ceiling((Settings.DockLength > 0 ? Settings.DockLength : ContentLength()) * dpi);
             int side = (int)Math.Round(FloatSide * dpi);
             int len = want < 200 ? along - 2 * side : Math.Min(along - 2 * side, want);
             int x, y, w, h;
@@ -256,8 +261,103 @@ namespace GlassBar
                 y = r.Top + (along - len) / 2;
                 x = Edge == 0 ? r.Left + gap : r.Right - gap - thick;
             }
-            Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, x, y, w, h, flags);
+            shownRect = new Native.RECT { Left = x, Top = y, Right = x + w, Bottom = y + h };
+            ApplySlide(sized: true);
             Native.SetRoundRegion(Hwnd, (int)Math.Round(FloatRadius * Settings.Scale * dpi));
+        }
+
+        // ---------------------------------------------------------------
+        // dock length: drag either end of the floating dock (it stays centered)
+        // ---------------------------------------------------------------
+        readonly Border[] endGrips = new Border[2];
+        bool lengthDrag;
+        const double MinDockLength = 320;
+
+        void InitEndGrips()
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                var handle = new Border { CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF)), Opacity = 0 };
+                var g = new Border { Background = new SolidColorBrush(Color.FromArgb(1, 255, 255, 255)), Child = handle,
+                    ToolTip = "Drag to make the dock longer or shorter. Double-click: fit the content." };
+                g.MouseEnter += (s, e) => handle.Opacity = 1;
+                g.MouseLeave += (s, e) => { if (!lengthDrag) handle.Opacity = 0; };
+                g.MouseLeftButtonDown += (s, e) =>
+                {
+                    if (e.ClickCount == 2) { SetDockLength(0); e.Handled = true; return; }
+                    if (!appBarOn) return;
+                    lengthDrag = true;
+                    ((UIElement)s).CaptureMouse();
+                    HideHover();
+                    e.Handled = true;
+                };
+                g.MouseMove += (s, e) => { if (lengthDrag) LengthDrag_Move(); };
+                g.MouseLeftButtonUp += (s, e) => ((UIElement)s).ReleaseMouseCapture();
+                g.LostMouseCapture += (s, e) => { if (lengthDrag) { lengthDrag = false; handle.Opacity = 0; Settings.Save(); } };
+                endGrips[i] = g;
+                Shell.Children.Add(g);
+            }
+        }
+
+        void LayoutEndGrips()
+        {
+            if (endGrips[0] == null) return;
+            bool v = Vertical;
+            for (int i = 0; i < 2; i++)
+            {
+                var g = endGrips[i];
+                var handle = (Border)g.Child;
+                g.Visibility = Floating ? Visibility.Visible : Visibility.Collapsed;
+                g.Width = v ? double.NaN : 12;
+                g.Height = v ? 12 : double.NaN;
+                g.HorizontalAlignment = v ? HorizontalAlignment.Stretch : i == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+                g.VerticalAlignment = !v ? VerticalAlignment.Stretch : i == 0 ? VerticalAlignment.Top : VerticalAlignment.Bottom;
+                g.Cursor = v ? Cursors.SizeNS : Cursors.SizeWE;
+                handle.Width = v ? 34 : 4;
+                handle.Height = v ? 4 : 34;
+                handle.HorizontalAlignment = HorizontalAlignment.Center;
+                handle.VerticalAlignment = VerticalAlignment.Center;
+            }
+        }
+
+        void LengthDrag_Move()
+        {
+            GetCursorPos(out var p);
+            var r = dockRect;
+            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            double center = Vertical ? (r.Top + r.Bottom) / 2.0 : (r.Left + r.Right) / 2.0;
+            double half = Math.Abs((Vertical ? p.Y : p.X) - center);
+            double along = (Vertical ? r.Bottom - r.Top : r.Right - r.Left) / dpi - 2 * FloatSide;
+            double len = Math.Clamp(2 * half / dpi, MinDockLength, along);
+            // snap to "fit content" when close to it
+            if (Math.Abs(len - ContentLength()) < 24) len = Math.Min(ContentLength(), along);
+            if (Math.Abs(len - Settings.DockLength) < 1) return;
+            Settings.DockLength = Math.Round(len);
+            PlaceWindow();
+        }
+
+        void SetDockLength(double len)
+        {
+            Settings.DockLength = len;
+            Settings.Save();
+            PlaceWindow();
+        }
+
+        MenuItem LengthMenu()
+        {
+            var m = new MenuItem { Header = "Dock length", IsEnabled = Floating };
+            m.Items.Add(MI("Fit the content", () => SetDockLength(0), Settings.DockLength <= 0));
+            var mon = Native.PrimaryMonitor();
+            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            double along = (Vertical ? mon.Bottom - mon.Top : mon.Right - mon.Left) / dpi - 2 * FloatSide;
+            foreach (var (name, k) in new[] { ("Short (50%)", 0.5), ("Medium (70%)", 0.7), ("Long (85%)", 0.85), ("Full width", 1.0) })
+            {
+                double len = Math.Round(along * k);
+                m.Items.Add(MI(name, () => SetDockLength(len), Settings.DockLength > 0 && Math.Abs(Settings.DockLength - len) < 4));
+            }
+            m.Items.Add(new Separator());
+            m.Items.Add(MI("Tip: drag either end of the dock", () => { }, enabled: false));
+            return m;
         }
 
         void SetFloating(bool on)
@@ -265,6 +365,7 @@ namespace GlassBar
             Settings.Floating = on;
             Settings.Save();
             ApplyLayout();
+            LayoutEndGrips();
             Dock();
         }
 

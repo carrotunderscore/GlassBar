@@ -56,12 +56,15 @@ namespace GlassBar
         void InstallKeyHook()
         {
             keyProc = KeyHook;
-            keyHook = SetWindowsHookEx(13 /* WH_KEYBOARD_LL */, keyProc, Native.GetModuleHandle(null), 0);
+            keyThread = StartHookThread("GlassBar key hook",
+                () => keyHook = SetWindowsHookEx(13 /* WH_KEYBOARD_LL */, keyProc, Native.GetModuleHandle(null), 0),
+                h => Native.UnhookWindowsHookEx(h));
         }
+        uint keyThread;
 
         void RemoveKeyHook()
         {
-            if (keyHook != IntPtr.Zero) { Native.UnhookWindowsHookEx(keyHook); keyHook = IntPtr.Zero; }
+            StopHookThread(keyThread); keyThread = 0; keyHook = IntPtr.Zero;
         }
 
         IntPtr KeyHook(int code, IntPtr msg, ref KBDLLHOOKSTRUCT k)
@@ -86,7 +89,7 @@ namespace GlassBar
                         keybd_event(0xE8, 0, 0, UIntPtr.Zero);
                         keybd_event(0xE8, 0, 2, UIntPtr.Zero);
                         keybd_event((byte)winVk, 0, 2, UIntPtr.Zero);
-                        Dispatcher.BeginInvoke(ToggleStart);
+                        Dispatcher.BeginInvoke(WinKeyPress);
                         return (IntPtr)1;
                     }
                 }

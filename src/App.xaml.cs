@@ -35,6 +35,9 @@ namespace GlassBar
             };
             TaskScheduler.UnobservedTaskException += (s, ex) => ex.SetObserved();
             AppDomain.CurrentDomain.ProcessExit += (s, ex) => { try { BarWindow.Instance?.Terminal?.Dispose(); } catch { } };
+            // never leave the Windows taskbar hidden if the bar goes away
+            AppDomain.CurrentDomain.UnhandledException += (s, ex) => { try { Native.SetWindowsTaskbarHidden(false); } catch { } };
+            Exit += (s, ex) => { try { Native.SetWindowsTaskbarHidden(false); } catch { } };
 
             var w = new BarWindow(snapshot);
             MainWindow = w;

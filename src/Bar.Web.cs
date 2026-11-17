@@ -42,6 +42,7 @@ namespace GlassBar
                 {
                     f = Register(new WebFlyout(a.title, a.url, a.w, a.h));
                     f.UnreadChanged += n => SetBadge(key, n);
+                    f.UnloadWhenHidden = !Settings.ChatsInBackground;
                     web[key] = f;
                     return f;
                 }
@@ -51,6 +52,7 @@ namespace GlassBar
         void InitWeb()
         {
             // create them hidden so they log in / count unread in the background
+            if (!Settings.ChatsInBackground) return;   // they load when you open them
             foreach (var a in WebApps) _ = GetWeb(a.key).Preload();
         }
 
@@ -72,6 +74,21 @@ namespace GlassBar
             text.Text = n > 99 ? "99+" : n.ToString();
         }
 
+        void ToggleChatsInBackground()
+        {
+            Settings.ChatsInBackground = !Settings.ChatsInBackground;
+            Settings.Save();
+            foreach (var f in web.Values)
+            {
+                f.UnloadWhenHidden = !Settings.ChatsInBackground;
+                if (!Settings.ChatsInBackground && !f.IsVisible) f.Unload();
+            }
+            if (Settings.ChatsInBackground) InitWeb();
+            ShowToast(Settings.ChatsInBackground
+                ? "Chats run in the background: unread badges on, uses more memory"
+                : "Chats load when you open them: less memory, no unread badges");
+        }
+
         async void ClearWebData()
         {
             foreach (var f in web.Values) await f.ClearLogin();
@@ -88,6 +105,28 @@ namespace GlassBar
         public event Action<string> Message;        // window.chrome.webview.postMessage from our scripts
         public event Action<bool> PageLoaded;       // navigation finished (success?)
         public CoreWebView2 Core => view.CoreWebView2;
+        bool unloaded;
+        public bool UnloadWhenHidden;                // close the page a while after the pop-up is hidden
+        System.Windows.Threading.DispatcherTimer unloadTimer;
+
+        /// Close the page (keeps the login). It loads again when the pop-up opens.
+        public void Unload()
+        {
+            try
+            {
+                if (view.CoreWebView2 == null || unloaded) return;
+                unloaded = true;
+                view.CoreWebView2.Navigate("about:blank");
+                UnreadChanged?.Invoke(0);
+            }
+            catch { }
+        }
+
+        void SetMemoryLow(bool low)
+        {
+            try { if (view.CoreWebView2 != null) view.CoreWebView2.MemoryUsageTargetLevel = low ? CoreWebView2MemoryUsageTargetLevel.Low : CoreWebView2MemoryUsageTargetLevel.Normal; }
+            catch { }
+        }
         static readonly Regex Count = new(@"\((\d+)\)");
 
         public WebFlyout(string title, string url, double w, double h) : base(title, w, h)
@@ -96,6 +135,17 @@ namespace GlassBar
             var frame = new Border { Margin = new Thickness(8, 0, 8, 8), CornerRadius = new CornerRadius(10), ClipToBounds = true, Child = view };
             Body.Children.Add(frame);
             AddHeaderButton("", "Reload", () => view.CoreWebView2?.Reload());
+            IsVisibleChanged += (s, e) =>
+            {
+                // hidden: tell the page to use as little memory as it can
+                SetMemoryLow(!IsVisible);
+                if (IsVisible) { unloadTimer?.Stop(); return; }
+                if (!UnloadWhenHidden) return;
+                unloadTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(3) };
+                unloadTimer.Tick -= UnloadTick;
+                unloadTimer.Tick += UnloadTick;
+                unloadTimer.Start();
+            };
             AddHeaderButton("", "Back", () => { if (view.CoreWebView2?.CanGoBack == true) view.CoreWebView2.GoBack(); });
             AddHeaderButton("", "Open in browser", () => BarWindow.Instance.Launch(view.Source?.ToString() ?? url));
         }
@@ -136,6 +186,7 @@ namespace GlassBar
                     if (e.PermissionKind == CoreWebView2PermissionKind.Notifications) e.State = CoreWebView2PermissionState.Allow;
                 };
                 core.Navigate(url);
+                SetMemoryLow(!IsVisible);
             }
             catch (Exception ex)
             {
@@ -148,6 +199,15 @@ namespace GlassBar
             }
         }
 
+        void UnloadTick(object s, EventArgs e) { unloadTimer.Stop(); if (!IsVisible) Unload(); }
+
+        /// Navigate (also wakes an unloaded page).
+        public void Go(string address)
+        {
+            unloaded = false;
+            view.CoreWebView2?.Navigate(address);
+        }
+
         void ParseTitle(string title)
         {
             var m = Count.Match(title ?? "");
@@ -156,7 +216,7 @@ namespace GlassBar
 
         protected override void OnShown()
         {
-            _ = Preload();
+            _ = Preload().ContinueWith(_ => Dispatcher.Invoke(() => { if (unloaded) Go(url); }));
             view.Focus();
         }
 

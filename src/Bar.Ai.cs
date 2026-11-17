@@ -21,7 +21,7 @@ namespace GlassBar
         public DateTime? SessionReset, WeekReset;
         public string Plan, Error;
         public string State = "loading";   // loading | ok | login | error
-        public DateTime Updated;
+        public DateTime Updated, LoginShownAt;
         public WebFlyout Web;
 
         public Button Tile;
@@ -82,13 +82,13 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
                 ai.Add(new AiProvider
                 {
                     Key = "chatgpt", Name = "ChatGPT", App = gpt, Origin = "https://chatgpt.com",
-                    ApiUrl = "https://chatgpt.com/api/auth/session", LoginUrl = "https://chatgpt.com/auth/login", Script = ChatGptScript
+                    ApiUrl = "https://chatgpt.com/", LoginUrl = "https://chatgpt.com/auth/login", Script = ChatGptScript
                 });
             if (claude != null || none)
                 ai.Add(new AiProvider
                 {
                     Key = "claude", Name = "Claude", App = claude, Origin = "https://claude.ai",
-                    ApiUrl = "https://claude.ai/api/organizations", LoginUrl = "https://claude.ai/login", Script = ClaudeScript
+                    ApiUrl = "https://claude.ai/settings/usage", LoginUrl = "https://claude.ai/login", Script = ClaudeScript
                 });
             if (gemini != null || none)
                 ai.Add(new AiProvider { Key = "gemini", Name = "Gemini", App = gemini, HasMeter = false, State = "ok" });
@@ -106,7 +106,7 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
         {
             if (!Settings.AiUsage || snapshotPath != null) return;
             foreach (var p in ai.Where(p => p.HasMeter)) _ = RefreshAi(p);
-            aiTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMinutes(4) };
+            aiTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
             aiTimer.Tick -= AiTick;
             aiTimer.Tick += AiTick;
             aiTimer.Start();
@@ -114,7 +114,8 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
 
         void AiTick(object s, EventArgs e)
         {
-            foreach (var p in ai.Where(p => p.HasMeter)) _ = RefreshAi(p);
+            // signed out ones wait until you click Sign in (no page kept loaded for them)
+            foreach (var p in ai.Where(p => p.HasMeter && p.State != "login")) _ = RefreshAi(p);
         }
 
         void ToggleAi()
@@ -132,13 +133,9 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
         {
             if (p.Web != null) return p.Web;
             p.Web = Register(new WebFlyout("Sign in to " + p.Name, p.ApiUrl, 520, 720));
+            p.Web.KeepOpen = true;   // a Google/Apple login pop-up takes focus: stay open until closed or signed in
             p.Web.Message += m => OnAiMessage(p, m);
-            p.Web.PageLoaded += ok => { if (ok) _ = RunAiScript(p); };
-            p.Web.IsVisibleChanged += (s, e) =>
-            {
-                // done signing in: go back to the light JSON page in the background
-                if (!p.Web.IsVisible && p.State == "ok" && p.Web.Core != null && !(p.Web.Core.Source ?? "").StartsWith(p.ApiUrl)) p.Web.Core.Navigate(p.ApiUrl);
-            };
+            p.Web.PageLoaded += ok => { AiLog(p, "page " + (ok ? "loaded " : "failed ") + Short(p.Web.Core?.Source)); if (ok) _ = RunAiScript(p); };
             return p.Web;
         }
 
@@ -151,7 +148,8 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
                 await w.Preload();
                 var core = w.Core;
                 if (core == null) { SetAiState(p, "error", "The web view didn't start"); return; }
-                if (!(core.Source ?? "").StartsWith(p.Origin, StringComparison.OrdinalIgnoreCase)) return;   // first load: PageLoaded runs the script
+                // the page is unloaded between checks: load it, PageLoaded runs the script
+                if (!(core.Source ?? "").StartsWith(p.Origin, StringComparison.OrdinalIgnoreCase)) { w.Go(p.ApiUrl); return; }
                 await RunAiScript(p);
             }
             catch (Exception ex) { SetAiState(p, "error", ex.Message); }
@@ -161,7 +159,26 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
         {
             var core = p.Web?.Core;
             if (core == null || !(core.Source ?? "").StartsWith(p.Origin, StringComparison.OrdinalIgnoreCase)) return;
-            try { await core.ExecuteScriptAsync(p.Script); } catch { }
+            try
+            {
+                if (core.IsSuspended) core.Resume();
+                await core.ExecuteScriptAsync(p.Script);
+            }
+            catch (Exception ex) { AiLog(p, "script failed: " + ex.Message); }
+        }
+
+        /// Hidden in the background between refreshes: let the page sleep so it uses no CPU.
+        /// Got the numbers (or found out we're signed out): unload the page so it doesn't sit in memory.
+        void UnloadAi(AiProvider p)
+        {
+            if (p.Web != null && !p.Web.IsVisible) p.Web.Unload();
+        }
+
+        static string Short(string url) => url == null ? "" : url.Length > 70 ? url.Substring(0, 70) : url;
+
+        static void AiLog(AiProvider p, string msg)
+        {
+            try { System.IO.File.AppendAllText(System.IO.Path.Combine(BarSettings.DataDir, "ai.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {p.Name}: {msg}\r\n"); } catch { }
         }
 
         void OnAiMessage(AiProvider p, string msg)
@@ -170,8 +187,8 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
             {
                 using var doc = JsonDocument.Parse(msg);
                 var r = doc.RootElement;
-                if (r.TryGetProperty("login", out _)) { SetAiState(p, "login"); return; }
-                if (r.TryGetProperty("err", out var err)) { SetAiState(p, "error", err.GetString()); return; }
+                if (r.TryGetProperty("login", out _)) { AiLog(p, "not signed in"); SetAiState(p, "login"); UnloadAi(p); return; }
+                if (r.TryGetProperty("err", out var err)) { AiLog(p, "error " + err.GetString()); SetAiState(p, "error", err.GetString()); UnloadAi(p); return; }
                 if (!r.TryGetProperty("ok", out _)) return;
 
                 static double? Num(JsonElement e, string k) => e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
@@ -184,13 +201,18 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
                 p.WeekReset = Time(r, "wr");
                 p.Plan = r.TryGetProperty("plan", out var plan) ? plan.GetString() : null;
                 p.Updated = DateTime.Now;
-                bool wasLogin = p.State == "login";
+                AiLog(p, $"ok session={p.Session} weekly={p.Week}");
                 SetAiState(p, "ok");
-                if (p.Web != null && p.Web.IsVisible && wasLogin)
+                if (p.Web != null && p.Web.IsVisible)
                 {
+                    // signed in: close the sign-in window. If it only just opened (you were already
+                    // signed in), show the numbers instead of a window that blinks away.
+                    bool justOpened = (DateTime.Now - p.LoginShownAt).TotalSeconds < 5;
                     p.Web.Hide();
-                    ShowToast($"{p.Name} connected – usage shows on the bar");
+                    if (justOpened) ShowAiFlyout();
+                    else ShowToast($"{p.Name} connected – usage shows on the bar");
                 }
+                UnloadAi(p);
             }
             catch { }
         }
@@ -368,10 +390,11 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
         void ShowAiLogin(AiProvider p)
         {
             var w = AiWeb(p);
+            p.LoginShownAt = DateTime.Now;
             _ = w.Preload().ContinueWith(_ => Dispatcher.Invoke(() =>
             {
-                if (p.State != "ok") w.Core?.Navigate(p.LoginUrl);
-                else w.Core?.Navigate(p.Origin + "/");
+                try { if (w.Core?.IsSuspended == true) w.Core.Resume(); } catch { }
+                w.Go(p.State != "ok" ? p.LoginUrl : p.Origin + "/");
             }));
             w.ShowAbove(p.Tile ?? (FrameworkElement)AiCard);
         }
