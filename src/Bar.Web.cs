@@ -85,6 +85,9 @@ namespace GlassBar
         readonly WebView2 view = new() { DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 12, 20, 40) };
         Task init;
         public event Action<int> UnreadChanged;
+        public event Action<string> Message;        // window.chrome.webview.postMessage from our scripts
+        public event Action<bool> PageLoaded;       // navigation finished (success?)
+        public CoreWebView2 Core => view.CoreWebView2;
         static readonly Regex Count = new(@"\((\d+)\)");
 
         public WebFlyout(string title, string url, double w, double h) : base(title, w, h)
@@ -117,11 +120,14 @@ namespace GlassBar
                 core.Settings.IsStatusBarEnabled = false;
                 core.Settings.AreDefaultContextMenusEnabled = true;
                 core.DocumentTitleChanged += (s, e) => ParseTitle(core.DocumentTitle);
+                core.WebMessageReceived += (s, e) => { try { Message?.Invoke(e.TryGetWebMessageAsString()); } catch { } };
+                core.NavigationCompleted += (s, e) => PageLoaded?.Invoke(e.IsSuccess);
                 core.NewWindowRequested += (s, e) =>
                 {
                     // links open in the normal browser; Google/Facebook login popups stay inside
                     var u = e.Uri ?? "";
-                    if (u.Contains("accounts.google.com") || u.Contains("facebook.com/login")) return;
+                    if (u.Contains("accounts.google.com") || u.Contains("facebook.com/login") || u.Contains("appleid.apple.com")
+                        || u.Contains("login.microsoftonline.com") || u.Contains("login.live.com")) return;
                     e.Handled = true;
                     BarWindow.Instance.Launch(u);
                 };

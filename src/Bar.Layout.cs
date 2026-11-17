@@ -39,6 +39,10 @@ namespace GlassBar
             Grip.MouseLeftButtonUp += Grip_Up;
             Grip.LostMouseCapture += (s, e) => { if (resizing) { resizing = false; Settings.Save(); } };
 
+            Strip.SizeChanged += (s, e) => QueuePlace();
+            StartCard.SizeChanged += (s, e) => QueuePlace();
+            ClockCard.SizeChanged += (s, e) => QueuePlace();
+
             Root.MouseLeftButtonDown += Move_Down;
             Root.MouseMove += Move_Move;
             Root.MouseLeftButtonUp += Move_Up;
@@ -66,7 +70,21 @@ namespace GlassBar
             for (int i = 0; i < 3; i++) { Grid.SetColumn(parts[i], v ? 0 : i); Grid.SetRow(parts[i], v ? i : 0); }
             foreach (var el in new FrameworkElement[] { TaskbarAsk, Toast }) { Grid.SetColumn(el, 0); Grid.SetRow(el, 0); Grid.SetColumnSpan(el, 3); Grid.SetRowSpan(el, 3); }
             Main.Margin = v ? new Thickness(10, 10, 10, 10) : new Thickness(10, 0, 10, 0);
-            Root.BorderThickness = Edge switch { 0 => new Thickness(0, 0, 1, 0), 1 => new Thickness(0, 0, 0, 1), 2 => new Thickness(1, 0, 0, 0), _ => new Thickness(0, 1, 0, 0) };
+            if (Floating)
+            {
+                Root.BorderThickness = new Thickness(1);
+                Root.CornerRadius = new CornerRadius(FloatRadius);
+                Root.Background = new SolidColorBrush(Color.FromArgb(0xE4, 0x0A, 0x13, 0x28));
+                Root.BorderBrush = new SolidColorBrush(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF));
+            }
+            else
+            {
+                Root.BorderThickness = Edge switch { 0 => new Thickness(0, 0, 1, 0), 1 => new Thickness(0, 0, 0, 1), 2 => new Thickness(1, 0, 0, 0), _ => new Thickness(0, 1, 0, 0) };
+                Root.CornerRadius = new CornerRadius(0);
+                Root.Background = new SolidColorBrush(Color.FromArgb(0xE0, 0x0A, 0x13, 0x28));
+                Root.BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
+            }
+            AiPanel.Orientation = v ? Orientation.Vertical : Orientation.Horizontal;
 
             // cards: fixed widths in a row, full width when stacked
             foreach (var c in Strip.Children.OfType<FrameworkElement>().Append(StartCard).Append(ClockCard))
@@ -84,7 +102,7 @@ namespace GlassBar
             StripScroll.VerticalScrollBarVisibility = v ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Disabled;
 
             // app icons and tray icons wrap into rows when the bar is a side panel
-            WindowsCard.Height = TrayCard.Height = v ? double.NaN : 74;
+            WindowsCard.Height = TrayCard.Height = AiCard.Height = v ? double.NaN : 74;
             AppsPanel.Orientation = v ? Orientation.Vertical : Orientation.Horizontal;
             PinSep.Width = v ? double.NaN : 1;
             PinSep.Height = v ? 1 : double.NaN;
@@ -179,6 +197,77 @@ namespace GlassBar
         // ---------------------------------------------------------------
         bool resizing;
 
+        // ---------------------------------------------------------------
+        // floating dock: as long as its content, centered, with a gap to the edge
+        // ---------------------------------------------------------------
+        public bool Floating => Settings.Floating;
+        const double FloatGap = 10, FloatSide = 36, FloatRadius = 22;
+        Native.RECT dockRect;
+        bool placeQueued;
+
+        int FloatGapPx => Floating ? (int)Math.Round(FloatGap * VisualTreeHelper.GetDpi(this).DpiScaleX) : 0;
+
+        static double Outer(FrameworkElement e, bool v) =>
+            e.Visibility == Visibility.Collapsed ? 0 : v ? e.ActualHeight + e.Margin.Top + e.Margin.Bottom : e.ActualWidth + e.Margin.Left + e.Margin.Right;
+
+        /// Length the bar needs to show every card without scrolling (DIPs, including the size scale).
+        double ContentLength()
+        {
+            bool v = Vertical;
+            double m = v ? Main.Margin.Top + Main.Margin.Bottom : Main.Margin.Left + Main.Margin.Right;
+            double strip = v ? Strip.ActualHeight : Strip.ActualWidth;
+            return (m + Outer(StartCard, v) + strip + Outer(ClockCard, v) + 2) * Settings.Scale;
+        }
+
+        void QueuePlace()
+        {
+            if (placeQueued) return;
+            placeQueued = true;
+            Dispatcher.BeginInvoke(() => { placeQueued = false; PlaceWindow(); }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        void PlaceWindow()
+        {
+            if (!appBarOn) return;
+            var r = dockRect;
+            const uint flags = Native.SWP_NOACTIVATE | Native.SWP_SHOWWINDOW;
+            if (!Floating)
+            {
+                Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, flags);
+                Native.ClearRegion(Hwnd);
+                return;
+            }
+            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            int gap = FloatGapPx, thick = (int)Math.Round(BarThickness * dpi);
+            int along = Vertical ? r.Bottom - r.Top : r.Right - r.Left;
+            int want = (int)Math.Ceiling(ContentLength() * dpi);
+            int side = (int)Math.Round(FloatSide * dpi);
+            int len = want < 200 ? along - 2 * side : Math.Min(along - 2 * side, want);
+            int x, y, w, h;
+            if (!Vertical)
+            {
+                w = len; h = thick;
+                x = r.Left + (along - len) / 2;
+                y = Edge == 1 ? r.Top + gap : r.Bottom - gap - thick;
+            }
+            else
+            {
+                w = thick; h = len;
+                y = r.Top + (along - len) / 2;
+                x = Edge == 0 ? r.Left + gap : r.Right - gap - thick;
+            }
+            Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, x, y, w, h, flags);
+            Native.SetRoundRegion(Hwnd, (int)Math.Round(FloatRadius * Settings.Scale * dpi));
+        }
+
+        void SetFloating(bool on)
+        {
+            Settings.Floating = on;
+            Settings.Save();
+            ApplyLayout();
+            Dock();
+        }
+
         void Grip_Down(object s, MouseButtonEventArgs e)
         {
             if (!appBarOn) return;
@@ -192,7 +281,7 @@ namespace GlassBar
             if (!resizing) return;
             GetCursorPos(out var p);
             var mon = Native.PrimaryMonitor();
-            double px = Edge switch { 0 => p.X - mon.Left, 1 => p.Y - mon.Top, 2 => mon.Right - p.X, _ => mon.Bottom - p.Y };
+            double px = Edge switch { 0 => p.X - mon.Left, 1 => p.Y - mon.Top, 2 => mon.Right - p.X, _ => mon.Bottom - p.Y } - FloatGapPx;
             double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
             double scale = Math.Clamp(px / ((Vertical ? VerticalBase : HorizontalBase) * dpi), MinScale, MaxScale);
             if (Math.Abs(scale - Settings.Scale) < 0.01) return;
@@ -221,7 +310,7 @@ namespace GlassBar
 
         void Move_Down(object s, MouseButtonEventArgs e)
         {
-            if (!appBarOn || !IsEmptySpot(e.OriginalSource)) return;
+            if (!appBarOn || !IsEmptySpot(e.OriginalSource) || CardOf(e.OriginalSource) != null) return;
             GetCursorPos(out moveStart);
             moveArmed = true;
             Root.CaptureMouse();

@@ -10,7 +10,7 @@ and the ModernGlass Windows theme.
 
 ## Install
 
-1. Download `GlassBar-v1.0.0-win-x64.zip` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and unzip it.
+1. Download `GlassBar-v1.1.0-win-x64.zip` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and unzip it.
 2. Right-click **`Install.ps1`** and choose **Run with PowerShell**.
    - Copies the app to `%LOCALAPPDATA%\Programs\GlassBar` (no admin needed)
    - Installs what's missing with `winget`: .NET 8 Desktop Runtime, ASP.NET Core Runtime 8, WebView2
@@ -37,6 +37,7 @@ and removes the app. It also asks whether to delete settings and chat logins.
 | **Search** | Type a path, URL or file and press Enter to open it. Anything else goes to Windows search. |
 | **Apps & windows** | Your pinned taskbar apps, then open windows. Click to switch or minimize, middle-click to close, hover for a live preview. |
 | **Media** | Spotify, or whatever is playing, with album art, progress and play/next/previous. For a video playing in the browser, click the picture to pop it out into a floating **mini player**. |
+| **AI usage** | Session (5-hour) and weekly limits for ChatGPT/Codex and Claude, if the apps are installed. See below. |
 | **Messenger · Messages · Gmail** | The web apps in glass pop-ups, with unread badges. Sign in once; they stay signed in and load in the background. |
 | **LocalSend** | Send files to your phone and receive from it. See below. |
 | **Recent** | Your latest files. The pop-up lets you drag files straight into a chat or browser. |
@@ -49,6 +50,15 @@ and removes the app. It also asks whether to delete settings and chat logins.
 | **Battery · Clock** | Battery level and charging state, date and time. **⋯** opens the bar settings. |
 
 Scroll the bar sideways with the mouse wheel, touchpad or the edge arrows.
+Hover any icon and its name shows up right away.
+
+### Floating dock and drag and drop
+
+- By default the bar is a **floating dock**: rounded, with a gap to the screen edge, and only as long as its content.
+  Turn it off in **⋯ → Floating dock** for a classic edge-to-edge bar.
+- **Drag to rearrange:** press on a card, a pinned app or an open window and drag it to a new place. The others slide
+  out of the way, and the order is remembered. **⋯ → Reset card order** undoes it.
+- **Drop files on a pinned app** to open them in that app.
 
 ### Size and position
 
@@ -67,6 +77,17 @@ A lone press of the **Windows key** opens the glass Start menu. Shortcuts like W
 
 Want the normal Start menu on the Windows key? Turn off **⋯ → Windows key opens the glass Start menu**.
 Ctrl+Esc always opens the Windows one.
+
+### AI usage
+
+The card shows how much of your **session** (5-hour) and **weekly** limit you've used, for the AI apps you have installed.
+
+- **ChatGPT / Codex** and **Claude:** click **Sign in** on the card once and log in to chatgpt.com or claude.ai in the pop-up.
+  GlassBar then reads the same numbers as the apps' own usage pages from that signed-in session, every few minutes.
+  The login stays in GlassBar's own web profile and isn't sent anywhere else.
+- **Gemini:** Google doesn't publish usage limits for the Gemini app, so the card just opens it.
+- Hover a meter for reset times, click the card for details, right-click for refresh or to hide the card.
+  These endpoints aren't official APIs, so a site update can break them. The card then shows *No data*.
 
 ### LocalSend (phone ⇄ PC)
 

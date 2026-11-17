@@ -29,6 +29,10 @@ namespace GlassBar
         public bool GlassStart { get; set; } = true;
         public string OmenMonitorPath { get; set; }
         public List<string> StartPins { get; set; }
+        public bool Floating { get; set; } = true;   // centered, rounded dock with a gap to the screen edge
+        public List<string> CardOrder { get; set; }  // order of the cards on the strip (drag to change)
+        public List<string> PinOrder { get; set; }   // order of the pinned apps (drag to change)
+        public bool AiUsage { get; set; } = true;
 
         static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassBar");
         static string FilePath => Path.Combine(Dir, "settings.json");
@@ -93,6 +97,9 @@ namespace GlassBar
             InitRecent();
             InitRecorder();
             InitStart();
+            InitHover();
+            InitReorder();
+            InitAi();
 
             Loaded += async (s, e) =>
             {
@@ -102,6 +109,7 @@ namespace GlassBar
                     await Task.Delay(2500);
                     await SnapshotFlyouts();
                     if (Environment.GetEnvironmentVariable("GB_SCROLL") != null) { StripScrollTo(StripScrollable); UpdateLayout(); await Task.Delay(300); }
+                    if (Floating) { if (Vertical) Height = Math.Min(ContentLength(), 1400); else Width = Math.Min(ContentLength(), 2560); UpdateLayout(); await Task.Delay(300); }
                     SaveSnapshot(this, (FrameworkElement)Content, snapshotPath);
                     Shutdown();
                     return;
@@ -109,6 +117,8 @@ namespace GlassBar
                 await Task.Delay(3000);
                 InitWeb();   // load chats/mail in the background so unread badges work
                 InitLocalSend();
+                await Task.Delay(3000);
+                StartAi();
             };
         }
 
@@ -145,9 +155,9 @@ namespace GlassBar
             if (!appBarOn) return;
             var mon = Native.PrimaryMonitor();
             double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-            int px = (int)Math.Round(BarThickness * scale);
-            var r = Native.AppBarSet(Hwnd, mon, (uint)Edge, px);
-            Native.SetWindowPos(Hwnd, Native.HWND_TOPMOST, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, Native.SWP_NOACTIVATE | Native.SWP_SHOWWINDOW);
+            int px = (int)Math.Round(BarThickness * scale) + FloatGapPx;
+            dockRect = Native.AppBarSet(Hwnd, mon, (uint)Edge, px);
+            PlaceWindow();
         }
 
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
@@ -365,6 +375,9 @@ namespace GlassBar
             m.Items.Add(MI("Replace Windows taskbar (auto-hide it)", () => ApplyTaskbarReplace(!Settings.ReplaceTaskbar), Settings.ReplaceTaskbar));
             m.Items.Add(MI("Start with Windows", ToggleAutostart, AutostartOn));
             m.Items.Add(MI("Windows key opens the glass Start menu", ToggleGlassStart, Settings.GlassStart));
+            m.Items.Add(MI("Floating dock (centered, rounded)", () => SetFloating(!Settings.Floating), Settings.Floating));
+            m.Items.Add(MI("Show AI usage", ToggleAi, Settings.AiUsage));
+            m.Items.Add(MI("Reset card order", ResetOrder, enabled: Settings.CardOrder != null || Settings.PinOrder != null));
             m.Items.Add(PositionMenu());
             m.Items.Add(SizeMenu());
             m.Items.Add(new Separator());

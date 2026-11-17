@@ -141,6 +141,8 @@ namespace GlassBar
             SetWindowRgn(h, CreateRoundRectRgn(0, 0, r.Right - r.Left + 1, r.Bottom - r.Top + 1, radiusPx * 2, radiusPx * 2), true);
         }
 
+        public static void ClearRegion(IntPtr h) => SetWindowRgn(h, IntPtr.Zero, true);
+
         // ---------------- top-level windows ----------------
         delegate bool EnumProc(IntPtr h, IntPtr l);
         [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);

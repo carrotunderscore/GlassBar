@@ -169,7 +169,9 @@ namespace GlassBar
             try
             {
                 if (!Directory.Exists(PinDir)) return;
-                foreach (var f in new DirectoryInfo(PinDir).GetFiles("*.lnk").OrderBy(f => f.CreationTime))
+                var order = Settings.PinOrder ?? new List<string>();
+                int Rank(FileInfo f) { int i = order.IndexOf(f.Name); return i < 0 ? int.MaxValue : i; }
+                foreach (var f in new DirectoryInfo(PinDir).GetFiles("*.lnk").OrderBy(Rank).ThenBy(f => f.CreationTime))
                     pins.Add(new PinItem { Path = f.FullName, Name = Path.GetFileNameWithoutExtension(f.Name), Icon = Native.ShellImage(f.FullName, 48) });
             }
             catch { }
