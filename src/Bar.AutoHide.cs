@@ -47,7 +47,13 @@ namespace GlassBar
 
             // explorer likes to show its taskbar again (Start menu, explorer restart): keep it hidden
             taskbarTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-            taskbarTimer.Tick += (s, e) => { if (Settings.ReplaceTaskbar) Native.SetWindowsTaskbarHidden(true); };
+            taskbarTimer.Tick += (s, e) =>
+            {
+                if (!Settings.ReplaceTaskbar) return;
+                Native.SetWindowsTaskbarHidden(true);
+                // a hidden taskbar that isn't on auto-hide still reserves its strip (a blue band under maximized windows)
+                if (!Native.TaskbarAutoHide) Native.TaskbarAutoHide = true;
+            };
             taskbarTimer.Start();
             if (Settings.ReplaceTaskbar) Native.SetWindowsTaskbarHidden(true);
         }

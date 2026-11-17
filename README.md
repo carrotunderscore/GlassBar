@@ -16,7 +16,7 @@ It doesn't add a Start menu shortcut or start with Windows; use the installer be
 
 **Installer:**
 
-1. Download `GlassBar-v1.2.0-win-x64.zip` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and unzip it.
+1. Download `GlassBar-v1.2.1-win-x64.zip` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and unzip it.
 2. Right-click **`Install.ps1`** and choose **Run with PowerShell**.
    - Copies the app to `%LOCALAPPDATA%\Programs\GlassBar` (no admin needed)
    - Installs what's missing with `winget`: .NET 8 Desktop Runtime, ASP.NET Core Runtime 8, WebView2

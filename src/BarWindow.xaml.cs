@@ -207,12 +207,13 @@ namespace GlassBar
         public void Shutdown()
         {
             if (reserved) { Native.AppBarRemove(Hwnd); reserved = false; }
+            bool wasBar = appBarOn;   // false in snapshot mode: then the Windows taskbar isn't ours to restore
             appBarOn = false;
-            if (Settings.ReplaceTaskbar) Native.SetWindowsTaskbarHidden(false);
+            if (wasBar && Settings.ReplaceTaskbar) Native.SetWindowsTaskbarHidden(false);
             Native.UnregisterHotKey(Hwnd, 1);
             StopHookThread(wheelThread); wheelThread = 0; wheelHook = IntPtr.Zero;
             RemoveKeyHook();
-            if (Settings.ReplaceTaskbar && Settings.OriginalAutoHide is bool orig) Native.TaskbarAutoHide = orig;
+            if (wasBar && Settings.ReplaceTaskbar && Settings.OriginalAutoHide is bool orig) Native.TaskbarAutoHide = orig;
             StopRecordingForExit();
             Terminal?.Dispose();
             ls?.Dispose();
