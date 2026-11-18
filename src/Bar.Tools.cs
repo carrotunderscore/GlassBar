@@ -19,6 +19,7 @@ namespace GlassBar
     {
         void Snip_Click(object s, RoutedEventArgs e)
         {
+            snipAsked = DateTime.Now;
             try { Process.Start(new ProcessStartInfo("ms-screenclip:") { UseShellExecute = true }); }
             catch { Launch("SnippingTool.exe"); }
         }
@@ -37,9 +38,7 @@ namespace GlassBar
         {
             get
             {
-                var d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Recordings");
-                Directory.CreateDirectory(d);
-                return d;
+                return SaveDir("Videos");
             }
         }
 

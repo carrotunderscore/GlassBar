@@ -22,6 +22,9 @@ namespace GlassBar
 
         public static Brush Res(string key) => (Brush)Application.Current.Resources[key];
 
+        /// One shared background for every pop-up (Start menu included), so the bar's opacity setting changes them all.
+        public static readonly SolidColorBrush Tint = new(Color.FromArgb(0xEC, 0x0A, 0x13, 0x28));
+
         public Flyout(string title, double width, double height)
         {
             WindowStyle = WindowStyle.None;
@@ -58,7 +61,7 @@ namespace GlassBar
             Content = new Border
             {
                 CornerRadius = new CornerRadius(16),
-                Background = new SolidColorBrush(Color.FromArgb(0xEC, 0x0A, 0x13, 0x28)),
+                Background = Tint,
                 BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
                 Child = root

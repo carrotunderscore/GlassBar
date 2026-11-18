@@ -99,7 +99,14 @@ namespace GlassBar
 
         void InitTray()
         {
-            TrayList.ItemsSource = trayItems;
+            // the arrow flows with the icons, so a side panel's rows stay even
+            ((Panel)TrayMoreBtn.Parent).Children.Remove(TrayMoreBtn);
+            TrayMoreBtn.Margin = new Thickness(0, 4, 0, 4);
+            TrayList.ItemsSource = new System.Windows.Data.CompositeCollection
+            {
+                new System.Windows.Data.CollectionContainer { Collection = trayItems },
+                TrayMoreBtn
+            };
             var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             t.Tick += (s, e) => RefreshTray();
             t.Start();
@@ -114,6 +121,12 @@ namespace GlassBar
             var sig = string.Join("|", icons.Select(i => $"{i.Hwnd}:{i.Id}:{i.HIcon}:{i.Tip}"));
             if (sig == traySig) return;
             traySig = sig;
+            if (snapshotPath != null && Environment.GetEnvironmentVariable("GB_TRAYDUMP") is string dump)
+            {
+                Tray.Dump = new(); Tray.Read();
+                System.IO.File.WriteAllLines(dump, icons.Select((i, k) => $"{TrayOwnerClass(i.Hwnd)} | {i.Id} | {(i.Tip ?? "").Split('\n')[0]}\n   {(k < Tray.Dump.Count ? Tray.Dump[k] : "")}"));
+                Tray.Dump = null;
+            }
             trayItems.Clear();
             foreach (var i in icons)
             {
@@ -127,11 +140,26 @@ namespace GlassBar
                     }
                 }
                 catch { }
-                if (img == null) continue;
+                if (img == null || DuplicateOfQuick(i)) continue;
                 trayItems.Add(new TrayItem { Data = i, Icon = img, Tip = string.IsNullOrWhiteSpace(i.Tip) ? null : i.Tip });
             }
         }
         string traySig;
+
+        static readonly string[] NetworkWords = { "Internet access", "No internet", "No Internet", "Not connected", "Internetåtkomst", "Ingen internet", "Inte ansluten", "Ej ansluten" };
+
+        /// Windows' Bluetooth and network tray icons: the Wi-Fi and Bluetooth buttons on the same card replace them.
+        static bool DuplicateOfQuick(Tray.Icon i)
+        {
+            var cls = TrayOwnerClass(i.Hwnd);
+            if (cls == "BluetoothNotificationAreaIconWindowClass") return true;
+            if (cls == "SystemTray_Main") return true;   // battery: already shown next to the clock
+            var tip = i.Tip ?? "";
+            if (cls.StartsWith("ATL:") && System.Text.RegularExpressions.Regex.IsMatch(tip, @":\s*\d{1,3}\s?%")) return true;   // volume
+            return cls.StartsWith("ATL:") && NetworkWords.Any(w => tip.Contains(w, StringComparison.OrdinalIgnoreCase));
+        }
+
+        static string TrayOwnerClass(IntPtr h) { var sb = new System.Text.StringBuilder(128); GetClassName(h, sb, 128); return sb.ToString(); }
 
         static TrayItem TrayOf(object s) => (s as FrameworkElement)?.DataContext as TrayItem;
 
@@ -155,7 +183,36 @@ namespace GlassBar
             Tray.Click(t.Data, right: false, dbl: true);
         }
 
-        void TrayMore_Click(object s, RoutedEventArgs e) => Native.PressKeys(0x5B, 0x42);   // Win+B: focus the real notification area
+        ListFlyout trayFly;
+
+        void TrayMore_Click(object s, RoutedEventArgs e)
+        {
+            if (trayFly == null)
+            {
+                trayFly = Register(new ListFlyout("Notification area", 420, 520));
+                trayFly.EmptyText = "No icons";
+                trayFly.AddFooter(Flyout.Pill("Choose which icons show", () => Launch("ms-settings:taskbar"), "\uE713"));
+            }
+            FillTrayFlyout();
+            trayFly.Toggle(TrayMoreBtn);
+        }
+
+        void FillTrayFlyout()
+        {
+            trayFly.SetSubtitle(trayItems.Count == 1 ? "1 icon" : $"{trayItems.Count} icons");
+            trayFly.SetRows(trayItems.Select(t => new ListRow
+            {
+                Icon = t.Icon,
+                Title = (t.Tip ?? "").Split('\n')[0].Trim() is { Length: > 0 } title ? title : "(no name)",
+                Subtitle = (t.Tip ?? "").Contains('\n') ? string.Join("  ·  ", t.Tip.Split('\n').Skip(1).Select(x => x.Trim()).Where(x => x.Length > 0)) : null,
+                Open = () => Tray.Click(t.Data, right: false, dbl: false),
+                Actions = new()
+                {
+                    ("\uE712", "Menu (same as right-click)", () => { trayFly.Hide(); Tray.Click(t.Data, right: true, dbl: false); }),
+                    ("\uE8A7", "Open (double-click)", () => { trayFly.Hide(); Tray.Click(t.Data, right: false, dbl: true); }),
+                }
+            }).ToList());
+        }
 
         // ---------------------------------------------------------------
         // pinned taskbar apps
@@ -270,7 +327,7 @@ namespace GlassBar
     /// Reads the notification-area icons out of explorer's tray toolbars and forwards clicks to their apps.
     public static class Tray
     {
-        public record Icon(IntPtr Hwnd, uint Id, uint CallbackMsg, IntPtr HIcon, string Tip);
+        public record Icon(IntPtr Hwnd, uint Id, uint CallbackMsg, IntPtr HIcon, string Tip, uint Version = 0);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string cls, string title);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
@@ -286,6 +343,7 @@ namespace GlassBar
 
         const uint TB_GETBUTTON = 0x417, TB_BUTTONCOUNT = 0x418, TB_GETBUTTONTEXTW = 0x44B;
 
+        public static List<string> Dump;
         public static List<Icon> Read()
         {
             var list = new List<Icon>();
@@ -322,10 +380,12 @@ namespace GlassBar
                     if ((state & 0x08) != 0) continue;   // TBSTATE_HIDDEN
                     var dwData = (IntPtr)BitConverter.ToInt64(btn, 16);
                     if (dwData == IntPtr.Zero || !ReadProcessMemory(proc, dwData, data, (IntPtr)32, out _)) continue;
-                    // TRAYDATA: hwnd, uID, uCallbackMessage, reserved[2], hIcon
+                    if (Dump != null) { var big = new byte[96]; ReadProcessMemory(proc, dwData, big, (IntPtr)96, out _); Dump.Add(BitConverter.ToString(big)); }
+                    // TRAYDATA: hwnd, uID, uCallbackMessage, flags, uVersion (NOTIFYICON_VERSION), hIcon
                     var hwnd = (IntPtr)BitConverter.ToInt64(data, 0);
                     uint id = BitConverter.ToUInt32(data, 8);
                     uint cb = BitConverter.ToUInt32(data, 12);
+                    uint ver = BitConverter.ToUInt32(data, 20);
                     var hIcon = (IntPtr)BitConverter.ToInt64(data, 24);
                     if (!IsWindow(hwnd)) continue;
 
@@ -337,7 +397,7 @@ namespace GlassBar
                         if (ReadProcessMemory(proc, mem, tbuf, (IntPtr)tbuf.Length, out _))
                             tip = System.Text.Encoding.Unicode.GetString(tbuf, 0, len * 2);
                     }
-                    list.Add(new Icon(hwnd, id, cb, hIcon, tip));
+                    list.Add(new Icon(hwnd, id, cb, hIcon, tip, ver > 4 ? 0 : ver));
                 }
             }
             finally
@@ -347,25 +407,37 @@ namespace GlassBar
             }
         }
 
+        [StructLayout(LayoutKind.Sequential)] struct PT { public int X, Y; }
+        [DllImport("user32.dll")] static extern bool GetCursorPos(out PT p);
+
         /// Sends the same mouse messages the real notification area would send to the icon's app.
+        /// Apps on NOTIFYICON_VERSION_4 (Qt, Chromium, most new apps) get the click point in wParam and
+        /// "message | id << 16" in lParam; older apps get the id in wParam and read the cursor themselves.
         public static void Click(Icon t, bool right, bool dbl)
         {
             GetWindowThreadProcessId(t.Hwnd, out uint pid);
             AllowSetForegroundWindow((int)pid);
-            void Post(uint m) => Native.PostMessage(t.Hwnd, t.CallbackMsg, (IntPtr)t.Id, (IntPtr)m);
+            GetCursorPos(out var pt);
+            bool v4 = t.Version >= 4;
+            var at = (IntPtr)(((pt.Y & 0xFFFF) << 16) | (pt.X & 0xFFFF));
+            void Post(uint m)
+            {
+                if (v4) Native.PostMessage(t.Hwnd, t.CallbackMsg, at, (IntPtr)(((t.Id & 0xFFFF) << 16) | (m & 0xFFFF)));
+                else Native.PostMessage(t.Hwnd, t.CallbackMsg, (IntPtr)t.Id, (IntPtr)m);
+            }
             if (right)
             {
-                Post(0x204); Post(0x205);   // WM_RBUTTONDOWN/UP
-                Post(0x7B);                 // WM_CONTEXTMENU (apps on NOTIFYICON_VERSION_4)
+                Post(0x204); Post(0x205);       // WM_RBUTTONDOWN/UP
+                if (v4) Post(0x7B);             // WM_CONTEXTMENU
             }
             else if (dbl)
             {
-                Post(0x203); Post(0x202);   // WM_LBUTTONDBLCLK + up
+                Post(0x203); Post(0x202);       // WM_LBUTTONDBLCLK + up
             }
             else
             {
-                Post(0x201); Post(0x202);   // WM_LBUTTONDOWN/UP
-                Post(0x400);                // NIN_SELECT
+                Post(0x201); Post(0x202);       // WM_LBUTTONDOWN/UP
+                if (t.Version >= 3) Post(0x400); // NIN_SELECT
             }
         }
     }

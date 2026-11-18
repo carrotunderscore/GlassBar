@@ -77,14 +77,14 @@ namespace GlassBar
             {
                 Root.BorderThickness = new Thickness(1);
                 Root.CornerRadius = new CornerRadius(FloatRadius);
-                Root.Background = new SolidColorBrush(Color.FromArgb(0xE4, 0x0A, 0x13, 0x28));
+                Root.Background = new SolidColorBrush(TintA(BarAlpha()));
                 Root.BorderBrush = new SolidColorBrush(Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF));
             }
             else
             {
                 Root.BorderThickness = Edge switch { 0 => new Thickness(0, 0, 1, 0), 1 => new Thickness(0, 0, 0, 1), 2 => new Thickness(1, 0, 0, 0), _ => new Thickness(0, 1, 0, 0) };
                 Root.CornerRadius = new CornerRadius(0);
-                Root.Background = new SolidColorBrush(Color.FromArgb(0xE0, 0x0A, 0x13, 0x28));
+                Root.Background = new SolidColorBrush(TintA(BarAlpha(0.98)));
                 Root.BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
             }
             AiPanel.Orientation = v ? Orientation.Vertical : Orientation.Horizontal;
@@ -114,13 +114,15 @@ namespace GlassBar
             PinSep.Margin = v ? new Thickness(10, 5, 10, 5) : new Thickness(5, 10, 5, 10);
             PinList.ItemsPanel = Panel(v ? typeof(WrapPanel) : typeof(StackPanel), Orientation.Horizontal);
             WindowsList.ItemsPanel = Panel(v ? typeof(WrapPanel) : typeof(StackPanel), Orientation.Horizontal);
-            TrayList.ItemsPanel = Panel(typeof(WrapPanel), v ? Orientation.Horizontal : Orientation.Vertical, v ? double.PositiveInfinity : 66);
-            TrayPanel.Orientation = v ? Orientation.Vertical : Orientation.Horizontal;
-            if (TrayPanel.Children[1] is Button more)
+            TrayList.ItemsPanel = Panel(v ? typeof(WrapPanel) : typeof(StackPanel), Orientation.Horizontal);
+            QuickPanel.Orientation = Orientation.Horizontal;   // two pills + one button fit a side panel's width too
+            QuickPanel.HorizontalAlignment = v ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            MonthDots.HorizontalAlignment = v ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+            if (TrayMoreBtn is Button more)
             {
-                more.Width = v ? double.NaN : 26;
-                more.Height = v ? 26 : 58;
-                more.Content = v ? "" : "";
+                more.Width = 40;
+                more.Height = 40;
+                more.Content = "";   // up: the arrow sits beside the icons in both layouts
             }
 
             // scroll fades/arrows at the ends of the strip
@@ -147,9 +149,9 @@ namespace GlassBar
 
         static void SetFade(Border fade, Button btn, bool start, bool v)
         {
-            var c0 = Color.FromArgb(0xF0, 0x0A, 0x13, 0x28);
-            var c1 = Color.FromArgb(0xC0, 0x0A, 0x13, 0x28);
-            var c2 = Color.FromArgb(0x00, 0x0A, 0x13, 0x28);
+            var c0 = TintA(BarAlpha(1.05));
+            var c1 = TintA(BarAlpha(0.85));
+            var c2 = TintA(0x00);
             Point a = v ? new Point(0, start ? 0 : 1) : new Point(start ? 0 : 1, 0);
             Point b = v ? new Point(0, start ? 1 : 0) : new Point(start ? 1 : 0, 0);
             fade.Background = new LinearGradientBrush(new GradientStopCollection { new(c0, 0), new(c1, 0.5), new(c2, 1) }, a, b);

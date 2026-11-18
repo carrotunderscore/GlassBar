@@ -81,7 +81,7 @@ namespace GlassBar
             Content = new Border
             {
                 CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(1), Child = root,
-                Background = new SolidColorBrush(Color.FromArgb(0xF0, 0x0A, 0x13, 0x28)),
+                Background = Flyout.Tint,
                 BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, 255, 255, 255))
             };
 

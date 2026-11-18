@@ -62,7 +62,11 @@ namespace GlassBar
         void TrackForeground()
         {
             var h = Native.GetForegroundWindow();
-            if (h != IntPtr.Zero && !IsOwnWindow(h)) lastForeground = h;
+            if (h != IntPtr.Zero && !IsOwnWindow(h))
+            {
+                if (h != lastForeground) NoteRecentApp(h);
+                lastForeground = h;
+            }
             foreach (var w in windows) w.IsActive = w.Hwnd == lastForeground && !Native.IsIconic(w.Hwnd);
             foreach (var p in pins) p.IsActive = p.Windows.Any(w => w.Hwnd == lastForeground && !Native.IsIconic(w.Hwnd));
         }
@@ -132,7 +136,7 @@ namespace GlassBar
 
             TrackForeground();
             PinSep.Visibility = pins.Count > 0 && windows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            WindowsCard.Visibility = windows.Count > 0 || pins.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            WindowsCard.Visibility = (windows.Count > 0 || pins.Count > 0) && !IsHidden(WindowsCard) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         static readonly Dictionary<string, ImageSource> exeIcons = new(StringComparer.OrdinalIgnoreCase);
@@ -232,7 +236,7 @@ namespace GlassBar
             Content = new Border
             {
                 CornerRadius = new CornerRadius(14), Child = dock, BorderThickness = new Thickness(1),
-                Background = new SolidColorBrush(Color.FromArgb(0xEE, 0x0C, 0x16, 0x2E)), BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 255, 255, 255))
+                Background = Flyout.Tint, BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 255, 255, 255))
             };
             SourceInitialized += (s, e) =>
             {

@@ -32,7 +32,7 @@ namespace GlassBar
             Content = new Border
             {
                 CornerRadius = new CornerRadius(8),
-                Background = new SolidColorBrush(Color.FromArgb(0xF4, 0x0E, 0x16, 0x2A)),
+                Background = Flyout.Tint,
                 BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(10, 5, 10, 6),

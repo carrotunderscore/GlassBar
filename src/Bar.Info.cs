@@ -43,8 +43,7 @@ namespace GlassBar
         {
             var list = await Task.Run(ReadRecent);
             recent = list;
-            RecentMini.ItemsSource = list.Take(3).ToList();
-            if (recentFly?.IsVisible == true) FillRecentFlyout();
+            if (recentFly?.IsVisible == true && recentShowsFiles) FillRecentFlyout();
         }
 
         static List<RecentFile> ReadRecent()
@@ -89,18 +88,36 @@ namespace GlassBar
 
         void RecentItem_Click(object s, RoutedEventArgs e)
         {
-            if ((s as FrameworkElement)?.DataContext is RecentFile f) Launch(f.Path);
+            var dc = (s as FrameworkElement)?.DataContext;
+            if (dc is RecentFile f) Launch(f.Path);
+            else if (dc is RecentApp a) OpenRecentApp(a);
         }
+
+        bool recentShowsFiles;
 
         void Recent_Click(object s, RoutedEventArgs e)
         {
-            recentFly ??= Register(new ListFlyout("Recent files", 460, 560));
+            if (recentFly == null)
+            {
+                recentFly = Register(new ListFlyout("Recently opened", 440, 560));
+                recentFly.AddHeaderButton("", "Show recent apps / files", () => { recentShowsFiles = !recentShowsFiles; FillRecentFlyout(); });
+                var clear = Flyout.Pill("Clear", ClearRecentApps);
+                clear.Margin = new Thickness(0, 0, 4, 0);
+                recentFly.HeaderExtra.Children.Insert(0, clear);
+                recentClearBtn = clear;
+            }
             FillRecentFlyout();
             recentFly.Toggle(RecentCard);
         }
+        Button recentClearBtn;
 
         void FillRecentFlyout()
         {
+            if (!recentShowsFiles) { FillRecentApps(); return; }
+            recentFly.Title2 = "Recent files";
+            recentClearBtn.Visibility = Visibility.Collapsed;
+            recentFly.SetSubtitle("");
+            recentFly.EmptyText = "No recent files";
             recentFly.SetRows(recent.Select(r => new ListRow
             {
                 Icon = r.Icon, Title = r.Name, Subtitle = System.IO.Path.GetDirectoryName(r.Path), Right = Ago(r.When),
@@ -138,7 +155,7 @@ namespace GlassBar
         // =============================================================
         // Task manager (CPU / RAM + processes)
         // =============================================================
-        readonly Queue<double> cpuHist = new(), ramHist = new();
+        double cpuNow, ramNow;
         ulong lastIdle, lastTotal;
         ListFlyout procFly;
         Dictionary<int, TimeSpan> lastProcCpu = new();
@@ -162,25 +179,13 @@ namespace GlassBar
             var mem = new Native.MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MEMORYSTATUSEX>() };
             Native.GlobalMemoryStatusEx(ref mem);
 
-            Push(cpuHist, Math.Clamp(cpu, 0, 100));
-            Push(ramHist, mem.dwMemoryLoad);
-            CpuText.Text = $"{cpu:0}%";
-            RamText.Text = $"{mem.dwMemoryLoad}%";
-            RamText.ToolTip = $"{(mem.ullTotalPhys - mem.ullAvailPhys) / 1073741824.0:0.0} of {mem.ullTotalPhys / 1073741824.0:0.0} GB in use";
-            Draw(CpuGraph, cpuHist);
-            Draw(RamGraph, ramHist);
+            cpuNow = Math.Clamp(cpu, 0, 100);
+            ramNow = mem.dwMemoryLoad;
+            CpuRing.Value = cpuNow;
+            RamRing.Value = ramNow;
+            CpuRing.ToolTip = $"Processor {cpuNow:0}%";
+            RamRing.ToolTip = $"Memory {ramNow:0}%: {(mem.ullTotalPhys - mem.ullAvailPhys) / 1073741824.0:0.0} of {mem.ullTotalPhys / 1073741824.0:0.0} GB in use";
             if (procFly?.IsVisible == true && (DateTime.Now - lastProcSample).TotalSeconds >= 2) _ = FillProcesses();
-        }
-
-        static void Push(Queue<double> q, double v) { q.Enqueue(v); while (q.Count > 40) q.Dequeue(); }
-
-        static void Draw(System.Windows.Shapes.Polyline line, Queue<double> q)
-        {
-            double w = 100, h = 22;
-            var pts = new PointCollection();
-            int i = 0, n = q.Count;
-            foreach (var v in q) pts.Add(new Point(w - (n - 1 - i++) * (w / 39.0), h - v / 100 * h + 1));
-            line.Points = pts;
         }
 
         void Tasks_Click(object s, RoutedEventArgs e)
@@ -248,7 +253,7 @@ namespace GlassBar
                     Actions = new() { ("\uE711", "End task", () => EndTask(r.name, r.pids)) }
                 }).ToList();
             procFly?.SetRows(rows);
-            procFly?.SetSubtitle($"CPU {CpuText.Text}  ·  RAM {RamText.Text}");
+            procFly?.SetSubtitle($"CPU {cpuNow:0}%  ·  RAM {ramNow:0}%");
         }
 
         DateTime lastProcStamp = DateTime.Now;

@@ -35,7 +35,16 @@ namespace GlassBar
         public bool AiUsage { get; set; } = true;
         public double DockLength { get; set; }
         public bool AutoHide { get; set; } = true;
-        public bool ChatsInBackground { get; set; } = true;   // keep Messenger/Messages/Gmail loaded for unread badges  // dock hides and slides in when the mouse touches the edge       // floating dock length in DIPs; 0 = fit the content
+        public bool ChatsInBackground { get; set; } = true;   // keep Messenger/Messages/Gmail loaded for unread badges
+        public List<string> HiddenCards { get; set; }           // widgets turned off in "Widgets on the bar"
+        public double BarOpacity { get; set; } = 0.89;          // 0.15 (see-through) – 1 (solid)
+        public string SaveFolder { get; set; }                  // Snips/Notes/Videos live here; null = Documents\GlassBar
+        public int TimerSeconds { get; set; } = 300;
+        public string Theme { get; set; } = "Blue";                 // GlassTheme preset, shared with ModernGlass Explorer
+        public bool MatchWindowsAccent { get; set; } = true;        // the Windows accent colour follows the theme
+        public uint[] OriginalWindowsAccent { get; set; }           // [start, accent] from before we changed it
+        public bool TimerOnBar { get; set; }                    // timer card on the bar (it's always in the clock pop-up)
+        public bool StopwatchOnBar { get; set; }
 
         static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassBar");
         static string FilePath => Path.Combine(Dir, "settings.json");
@@ -75,8 +84,15 @@ namespace GlassBar
             StripScroll.ScrollChanged += (s, e) => UpdateFades();
             SearchBox.TextChanged += (s, e) => SearchHint.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
             TermBox.TextChanged += (s, e) => TermHint.Visibility = TermBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-            Root.MouseRightButtonUp += (s, e) => { if (IsEmptySpot(e.OriginalSource)) Menu_Click(null, null); };
+            Root.AddHandler(MouseUpEvent, new MouseButtonEventHandler(Root_RightUp));
             if (snapshot != null && int.TryParse(Environment.GetEnvironmentVariable("GB_EDGE"), out int testEdge)) Settings.Edge = testEdge;
+            if (snapshot != null && Environment.GetEnvironmentVariable("GB_TIMERS") != null) Settings.TimerOnBar = Settings.StopwatchOnBar = true;
+            if (snapshot != null && Environment.GetEnvironmentVariable("GB_SAVEDIR") is string sd) Settings.SaveFolder = sd;
+            if (snapshot != null && Environment.GetEnvironmentVariable("GB_HIDE") is string hide) Settings.HiddenCards = hide.Split(',').ToList();
+            if (snapshot != null && Environment.GetEnvironmentVariable("GB_THEME") is string th) Settings.Theme = th;
+            ApplyTheme();
+            ApplyPopupOpacity();
+            Dispatcher.BeginInvoke(() => SyncWindowsAccent(), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             InitLayout();
 
             var clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -98,14 +114,22 @@ namespace GlassBar
             InitPerf();
             InitOmen();
             InitRecent();
+            InitRecentApps();
+            InitNotes();
+            InitClock();
+            InitBrightness();
+            InitQuick();
+            if (snapshot == null) InitSnipSaver();
             InitRecorder();
             InitStart();
             InitHover();
             InitReorder();
             InitAi();
+            ApplyHiddenWidgets();
 
             Loaded += async (s, e) =>
             {
+                UpdateTimers();
                 UpdateFades();
                 if (snapshotPath != null)
                 {
@@ -244,8 +268,46 @@ namespace GlassBar
         uint wheelThread;
         volatile bool barVisible = true;
 
+        volatile int hookSeen = Environment.TickCount;
+        DispatcherTimer hookWatch;
+        (int X, int Y) hookLastCursor;
+
         void InstallWheelHook()
         {
+            if (wheelProc == null)
+            {
+                // Windows hands the wheel straight to the bar when the hook misses it (an admin window in front, a dropped hook)
+                PreviewMouseWheel += (s, e) =>
+                {
+                    var p = PointToScreen(e.GetPosition(this));
+                    OnWheel(p, e.Delta, false);
+                    e.Handled = true;
+                };
+                // a stale mouse capture (left by a closed pop-up) swallows the first click/wheel: drop it
+                MouseEnter += (s, e) =>
+                {
+                    if (Mouse.Captured is DependencyObject c && Window.GetWindow(c) == this
+                        && Mouse.LeftButton == MouseButtonState.Released && Mouse.RightButton == MouseButtonState.Released)
+                        Mouse.Capture(null);
+                };
+                // a hook that stops getting calls while the mouse moves was dropped by Windows: put it back
+                hookWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                hookWatch.Tick += (s, e) =>
+                {
+                    if (!GetCursorPos(out var p)) return;
+                    bool moved = p.X != hookLastCursor.X || p.Y != hookLastCursor.Y;
+                    hookLastCursor = (p.X, p.Y);
+                    if (moved && unchecked(Environment.TickCount - hookSeen) > 6000)
+                    {
+                        StopHookThread(wheelThread);
+                        hookSeen = Environment.TickCount;
+                        wheelThread = StartHookThread("GlassBar mouse hook",
+                            () => wheelHook = Native.SetWindowsHookEx(14 /* WH_MOUSE_LL */, wheelProc, Native.GetModuleHandle(null), 0),
+                            h => Native.UnhookWindowsHookEx(h));
+                    }
+                };
+                hookWatch.Start();
+            }
             wheelProc = WheelHook;
             IsVisibleChanged += (s, e) => barVisible = IsVisible;
             barVisible = IsVisible;
@@ -256,6 +318,7 @@ namespace GlassBar
 
         IntPtr WheelHook(int code, IntPtr msg, ref Native.MSLLHOOKSTRUCT info)
         {
+            hookSeen = Environment.TickCount;
             if (code >= 0 && (int)msg == 0x0200) OnMouseMoveHook(info.pt.X, info.pt.Y);   // WM_MOUSEMOVE: auto-hide reveal
             else if (code >= 0 && ((int)msg == 0x020A || (int)msg == 0x020E))
             {
@@ -274,18 +337,6 @@ namespace GlassBar
 
         void OnWheel(Point screenPx, int delta, bool horizontal)
         {
-            // over the volume card the wheel changes the volume
-            if (!horizontal && VolumeCard.IsVisible)
-            {
-                var tl = VolumeCard.PointToScreen(new Point(0, 0));
-                var br = VolumeCard.PointToScreen(new Point(VolumeCard.ActualWidth, VolumeCard.ActualHeight));
-                if (screenPx.X >= tl.X && screenPx.X <= br.X && screenPx.Y >= tl.Y && screenPx.Y <= br.Y)
-                {
-                    VolSlider.Value = Math.Clamp(VolSlider.Value + Math.Sign(delta) * 2, 0, 100);
-                    VolumeBeep(250);
-                    return;
-                }
-            }
             // wheel down / swipe right = move right
             ScrollBy(horizontal ? delta / 120.0 * 160 : -delta / 120.0 * 160);
         }
@@ -337,6 +388,7 @@ namespace GlassBar
             var now = DateTime.Now;
             ClockTime.Text = now.ToString("HH:mm");
             ClockDate.Text = now.ToString("ddd d MMM");
+            UpdateCalendar();
         }
 
         static string GlassExplorerExe => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "GlassExplorer", "GlassExplorer.exe");
@@ -401,7 +453,10 @@ namespace GlassBar
             m.Items.Add(MI("Windows key opens the glass Start menu", ToggleGlassStart, Settings.GlassStart));
             m.Items.Add(MI("Auto-hide (show when the mouse touches the edge)", () => SetAutoHide(!Settings.AutoHide), Settings.AutoHide));
             m.Items.Add(MI("Floating dock (centered, rounded)", () => SetFloating(!Settings.Floating), Settings.Floating));
-            m.Items.Add(MI("Show AI usage", ToggleAi, Settings.AiUsage));
+            m.Items.Add(HiddenWidgetsMenu());
+            m.Items.Add(WidgetsMenu());
+            m.Items.Add(OpacityMenu());
+            m.Items.Add(ThemeMenu());
             m.Items.Add(MI("Reset card order", ResetOrder, enabled: Settings.CardOrder != null || Settings.PinOrder != null));
             m.Items.Add(LengthMenu());
             m.Items.Add(PositionMenu());
@@ -409,7 +464,7 @@ namespace GlassBar
             m.Items.Add(new Separator());
             m.Items.Add(MI("Keep chats running for unread badges (uses more memory)", ToggleChatsInBackground, Settings.ChatsInBackground));
             m.Items.Add(MI("Sign out of chats and mail", ClearWebData));
-            m.Items.Add(MI("Open recordings folder", () => Launch(RecordingsDir)));
+            m.Items.Add(SaveFolderMenu());
             m.Items.Add(new Separator());
             m.Items.Add(MI("Exit bar", Shutdown));
             m.PlacementTarget = s as UIElement ?? this;

@@ -8,6 +8,8 @@ system stats, screen recording, a terminal, phone transfers and a glass Start me
 Part of the **ModernGlass** set, together with [GlassExplorer](https://github.com/carrotunderscore/GlassExplorer)
 and the ModernGlass Windows theme.
 
+![GlassBar as a floating dock over the desktop](docs/screenshot-bar.png)
+
 ## Install
 
 **Quickest:** download `GlassBar.exe` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and run it.
@@ -80,6 +82,14 @@ Hover any icon and its name shows up right away.
 - **Resize:** drag the bar's inner edge, or pick a size in **⋯ → Bar size**.
 - **Move:** hold the mouse on an empty spot of the bar and drag it to another screen edge, or use **⋯ → Bar position**.
   On the left or right edge the bar becomes a side panel and scrolls vertically.
+
+### Colours and opacity
+
+- **⋯ → Colour** picks one of eight themes (Blue, Violet, Teal, Green, Amber, Red, Rose, Graphite).
+  The theme colours the glass and the accent, and GlassExplorer follows it live.
+- **Windows uses this colour too** (on by default) sets the Windows accent colour to match.
+  Turn it off to get your old accent colour back.
+- **⋯ → Opacity** makes the bar, its pop-ups, menus and the Start menu more or less see-through.
 
 ### Glass Start menu
 

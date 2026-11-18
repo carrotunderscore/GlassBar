@@ -100,7 +100,7 @@ post({ok:true,s:p?p.used_percent:null,sr:at(p),w:q?q.used_percent:null,wr:at(q),
             UpdateAiVisibility();
         }
 
-        void UpdateAiVisibility() => AiCard.Visibility = Settings.AiUsage && ai.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        void UpdateAiVisibility() => AiCard.Visibility = Settings.AiUsage && ai.Count > 0 && !IsHidden(AiCard) ? Visibility.Visible : Visibility.Collapsed;
 
         void StartAi()
         {

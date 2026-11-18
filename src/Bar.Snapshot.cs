@@ -38,6 +38,9 @@ namespace GlassBar
                     case "recent": Recent_Click(null, null); f = recentFly; break;
                     case "tasks": Tasks_Click(null, null); await Task.Delay(2500); _ = FillProcesses(); f = procFly; break;
                     case "rec": RecMenu_Click(null, null); f = recFly; break;
+                    case "clock": Clock_Click(null, null); f = clockFly; break;
+                    case "notes": Notes_Click(null, null); f = notesFly; break;
+                    case "calendar": Calendar_Click(null, null); f = calFly; break;
                     case "start": await StartApps.Refresh(force: true); ToggleStart(); f = startFly; break;
                     case "terminal":
                         RunCommand("Get-ChildItem $env:WINDIR -Directory | Select-Object -First 6 Name, LastWriteTime");
