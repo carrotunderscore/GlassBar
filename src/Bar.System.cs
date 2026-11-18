@@ -319,8 +319,56 @@ namespace GlassBar
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(p.Path) { UseShellExecute = true, Verb = "runas" }); } catch { }
             }));
             m.Items.Add(MI("Open file location", () => Launch("explorer.exe", $"/select,\"{p.Path}\"")));
+            m.Items.Add(new Separator());
+            m.Items.Add(MI("Unpin from taskbar", () => UnpinApp(p)));
             m.PlacementTarget = (UIElement)s;
             m.IsOpen = true;
+        }
+
+        /// A normal program that isn't pinned yet (Store apps run inside a host .exe and can't be pinned this way).
+        bool CanPin(string exe) =>
+            !string.IsNullOrEmpty(exe) && exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(exe)
+            && !exe.EndsWith("applicationframehost.exe", StringComparison.OrdinalIgnoreCase)
+            && !pins.Any(p => p.Target == exe.ToLowerInvariant());
+
+        /// Pins a program: a shortcut in the taskbar's pin folder, the same place Windows keeps its own pins.
+        void PinApp(string exe)
+        {
+            try
+            {
+                string name = null;
+                try { var v = System.Diagnostics.FileVersionInfo.GetVersionInfo(exe); name = v.FileDescription; if (string.IsNullOrWhiteSpace(name)) name = v.ProductName; } catch { }
+                if (string.IsNullOrWhiteSpace(name)) name = Path.GetFileNameWithoutExtension(exe);
+                name = string.Concat(name.Trim().Split(Path.GetInvalidFileNameChars()));
+                Directory.CreateDirectory(PinDir);
+                var lnk = Path.Combine(PinDir, name + ".lnk");
+                for (int i = 2; File.Exists(lnk); i++) lnk = Path.Combine(PinDir, $"{name} ({i}).lnk");
+
+                var t = Type.GetTypeFromProgID("WScript.Shell");
+                dynamic sh = Activator.CreateInstance(t);
+                try
+                {
+                    dynamic sc = sh.CreateShortcut(lnk);
+                    sc.TargetPath = exe;
+                    sc.WorkingDirectory = Path.GetDirectoryName(exe);
+                    sc.Save();
+                }
+                finally { Marshal.FinalReleaseComObject(sh); }
+
+                var order = Settings.PinOrder ?? pins.Select(p => Path.GetFileName(p.Path)).ToList();
+                order.Add(Path.GetFileName(lnk));
+                Settings.PinOrder = order; Settings.Save();
+            }
+            catch { }
+            LoadPins(); RefreshWindows();
+        }
+
+        void UnpinApp(PinItem p)
+        {
+            try { File.Delete(p.Path); } catch { }
+            Settings.PinOrder?.Remove(Path.GetFileName(p.Path));
+            Settings.Save();
+            LoadPins(); RefreshWindows();
         }
     }
 

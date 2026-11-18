@@ -183,6 +183,7 @@ namespace GlassBar
             var m = new ContextMenu();
             m.Items.Add(MI("Bring to front", () => Native.Activate(w.Hwnd)));
             m.Items.Add(MI("Minimize", () => Native.ShowWindow(w.Hwnd, Native.SW_MINIMIZE)));
+            if (CanPin(w.Exe)) m.Items.Add(MI("Pin to taskbar", () => PinApp(w.Exe)));
             m.Items.Add(new Separator());
             m.Items.Add(MI("Close window", () => Native.PostMessage(w.Hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero)));
             m.PlacementTarget = (UIElement)s;

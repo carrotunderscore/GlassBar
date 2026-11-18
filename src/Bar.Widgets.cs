@@ -268,7 +268,7 @@ namespace GlassBar
             int days = DateTime.IsLeapYear(now.Year) ? 366 : 365;
             double yearPct = 100.0 * (now.DayOfYear - 1 + now.TimeOfDay.TotalDays) / days;
             CalPct.Text = $"{yearPct:0}%";
-            CalendarCard.ToolTip = $"{now.ToString("dddd d MMMM", en)} · day {now.Day} of {DateTime.DaysInMonth(now.Year, now.Month)} · {yearPct:0}% of {now.Year} has passed";
+            CalendarCard.ToolTip = $"{now.ToString("dddd d MMMM", en)} · week {ISOWeek.GetWeekOfYear(now)} · day {now.Day} of {DateTime.DaysInMonth(now.Year, now.Month)} · {yearPct:0}% of {now.Year} has passed";
         }
 
         void Calendar_Click(object s, RoutedEventArgs e)
