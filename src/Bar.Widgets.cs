@@ -84,7 +84,11 @@ namespace GlassBar
             return root;
         }
 
-        bool IsHidden(FrameworkElement card) => card.Name switch
+        /// GB_DEMO=1: for screen recordings, leaves out personal things (name, recent files, chats, media, notes).
+        public static readonly bool Demo = Environment.GetEnvironmentVariable("GB_DEMO") != null;
+        static readonly string[] DemoHidden = { "MediaCard", "ChatsCard", "AiCard", "RecentCard", "NotesCard" };
+
+        bool IsHidden(FrameworkElement card) => Demo && DemoHidden.Contains(card.Name) ? true : card.Name switch
         {
             "TimerCard" => !Settings.TimerOnBar,
             "StopwatchCard" => !Settings.StopwatchOnBar,

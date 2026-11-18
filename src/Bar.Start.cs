@@ -134,7 +134,7 @@ namespace GlassBar
         {
             int h = DateTime.Now.Hour;
             var part = h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-            return $"{part}, {Environment.UserName}";
+            return BarWindow.Demo ? part : $"{part}, {Environment.UserName}";
         }
 
         protected override void OnShown()

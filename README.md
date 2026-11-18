@@ -10,6 +10,8 @@ and the ModernGlass Windows theme.
 
 ![GlassBar as a floating dock over the desktop](docs/screenshot-bar.png)
 
+![GlassBar demo: scrolling the cards, changing the bar size, the Start menu, colours, and moving the bar to the top, sides and bottom](docs/demo.gif)
+
 ## Install
 
 **Quickest:** download `GlassBar.exe` from [Releases](https://github.com/carrotunderscore/GlassBar/releases/latest) and run it.

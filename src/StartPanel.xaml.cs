@@ -107,8 +107,9 @@ namespace GlassBar
         {
             this.host = host;
             InitializeComponent();
-            UserName.Text = Environment.UserName;
-            UserInitial.Text = Environment.UserName.Length > 0 ? Environment.UserName[..1].ToUpperInvariant() : "?";
+            var name = BarWindow.Demo ? "User" : Environment.UserName;
+            UserName.Text = name;
+            UserInitial.Text = name.Length > 0 ? name[..1].ToUpperInvariant() : "?";
         }
 
         BarSettings S => BarWindow.Instance.Settings;
@@ -127,7 +128,8 @@ namespace GlassBar
         {
             EnsureDefaultPins();
             PinnedList.ItemsSource = S.StartPins.Select(id => StartApps.All.FirstOrDefault(a => a.AppID == id)).Where(a => a != null).ToList();
-            RecentList.ItemsSource = BarWindow.Instance.RecentFiles.Take(6).ToList();
+            RecentList.ItemsSource = BarWindow.Demo ? new List<RecentFile>() : BarWindow.Instance.RecentFiles.Take(6).ToList();
+            if (BarWindow.Demo && RecentList.Parent is DockPanel recentBox) recentBox.Visibility = Visibility.Collapsed;
             var items = new List<object>();
             string last = null;
             foreach (var a in StartApps.All)
