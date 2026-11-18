@@ -1,6 +1,6 @@
 # GlassBar
 
-A dark, glassy taskbar replacement for Windows 10, built with WPF (.NET 8).
+A free alternative to Lumabar: a dark, glassy taskbar replacement for Windows 10, built with WPF (.NET 8).
 It sits on any screen edge, hides until you need it and puts your
 everyday tools on scrollable glass cards: open windows, chats, mail, music, files,
 system stats, screen recording, a terminal, phone transfers and a glass Start menu.
